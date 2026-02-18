@@ -125,8 +125,9 @@ def main():
     entry_point = ALGO_ENTRY_POINTS[args.algo]
     print(f"Algorithm: {args.algo} (entry_point: {entry_point})")
 
+    # Use algo as solution name so "solution" in each trace line is the algo (easy to filter in analysis)
     print("Packing solution from source files...")
-    solution_path = pack_solution(entry_point=entry_point)
+    solution_path = pack_solution(entry_point=entry_point, name=args.algo)
 
     print("\nLoading solution...")
     solution = Solution.model_validate_json(solution_path.read_text())

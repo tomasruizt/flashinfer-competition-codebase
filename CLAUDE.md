@@ -144,6 +144,36 @@ Each kernel is a separate definition, needs a separate `config.toml` definition 
 - **NVlabs/GatedDeltaNet**: Official ICLR 2025 implementation (wraps FLA kernels)
 - Research-grade Triton, not tuned for Blackwell — optimization headroom exists
 
+## Multi-Algo Benchmarking
+
+### Entry point dispatch via `--algo` flag
+```bash
+python scripts/run_local.py --algo=fla-recurrent    # default
+python scripts/run_local.py --algo=pt-reference      # compiled PyTorch reference
+```
+- Each algo maps to a separate DPS entry point function in `kernel.py` (e.g. `kernel_fla_recurrent`, `kernel_pt_reference`)
+- `run_local.py` passes the entry point string to `pack_solution(entry_point=...)`, overriding config.toml
+- `pack_solution()` also accepts `name=` to set the solution name per algo
+
+### torch.compile
+- Both entry points use `@torch.compile(fullgraph=True)`
+- FLA Triton kernel works with `fullgraph=True` — torch.compile traces through `@triton.jit` kernels natively
+- PyTorch reference also works with `fullgraph=True` — compiler unrolls the Python loops (B=1, num_heads=8 are small constants)
+- Main benefit for FLA wrapper: fuses gate computation (`exp`, `softplus`, `sigmoid`) and state transposes, eliminating intermediate allocations
+
+### Trace file structure
+- Trace output path: `{FIB_DATASET_PATH}/traces/{op_type}/{definition_name}.jsonl`
+- Path is keyed by **definition name** only — all solutions for the same definition append to the same JSONL file
+- Each JSON line has a `"solution"` field to distinguish between algos
+- To separate algos in the trace file, use different solution names via `pack_solution(name=...)`
+
+### Performance baselines (RTX 3090)
+| Algo | Latency | Speedup vs reference |
+|---|---|---|
+| pt-reference (eager) | ~1.4 ms | ~1.0x |
+| pt-reference (compiled) | ~0.73 ms | ~1.8x |
+| fla-recurrent (compiled) | ~0.14 ms | ~9.5x |
+
 ## flashinfer-bench Internals
 - Source: `/home/tomasruiz/miniforge3/envs/fi-bench/lib/python3.12/site-packages/flashinfer_bench/`
 - Builder loads solution, imports as Python module, gets entry_point via `getattr()`

@@ -31,12 +31,15 @@ def load_config() -> dict:
         return tomllib.load(f)
 
 
-def pack_solution(output_path: Path = None, entry_point: str = None) -> Path:
+def pack_solution(output_path: Path = None, entry_point: str = None, name: str = None) -> Path:
     """Pack solution files into a Solution JSON."""
     config = load_config()
 
     solution_config = config["solution"]
     build_config = config["build"]
+
+    # Use explicit name override, or base name from config (e.g. with algo suffix from run_local)
+    solution_name = name if name is not None else solution_config["name"]
 
     language = build_config["language"]
     if entry_point is None:
@@ -64,7 +67,7 @@ def pack_solution(output_path: Path = None, entry_point: str = None) -> Path:
     solution = pack_solution_from_files(
         path=str(source_dir),
         spec=spec,
-        name=solution_config["name"],
+        name=solution_name,
         definition=solution_config["definition"],
         author=solution_config["author"],
     )

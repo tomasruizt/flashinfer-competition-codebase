@@ -1,8 +1,8 @@
 [solution]
-name = "lmu-css-solution-v1"      # Solution name
+name = "<placeholder>"      # Solution name, injected at runtime based on algorithm
 definition = "gdn_decode_qk4_v8_d128_k_last"  # Decode kernel for GDN track
 author = "lmu-css"                # Team/author name
 
 [build]
 language = "triton"               # triton | cuda
-entry_point = "kernel.py::kernel_fla_recurrent"         # Kernel function name
+entry_point = "<placeholder>"     # Kernel function name, injected at runtime based on algorithm
