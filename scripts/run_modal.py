@@ -105,10 +105,14 @@ def print_results(results: dict):
 @app.local_entrypoint()
 def main():
     """Pack solution and run benchmark on Modal."""
-    from scripts.pack_solution import pack_solution
+    from scripts.pack_solution import ALGO_ENTRY_POINTS, pack_solution, parse_args
+
+    args = parse_args()
+    entry_point = ALGO_ENTRY_POINTS[args.algo]
+    print(f"Algorithm: {args.algo} (entry_point: {entry_point})")
 
     print("Packing solution from source files...")
-    solution_path = pack_solution()
+    solution_path = pack_solution(entry_point=entry_point, name=args.algo)
 
     print("\nLoading solution...")
     solution = Solution.model_validate_json(solution_path.read_text())

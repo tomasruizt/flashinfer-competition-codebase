@@ -20,6 +20,31 @@ except ImportError:
 from flashinfer_bench import BuildSpec
 from flashinfer_bench.agents import pack_solution_from_files
 
+ALGO_ENTRY_POINTS = {
+    "fla-recurrent": "kernel.py::kernel_fla_recurrent",
+    "pt-reference": "kernel.py::kernel_pt_reference",
+}
+
+
+def parse_args():
+    """Parse command-line arguments common to all scripts."""
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Pack and benchmark GDN kernel")
+    parser.add_argument(
+        "--algo",
+        choices=list(ALGO_ENTRY_POINTS.keys()),
+        default="fla-recurrent",
+        help="Algorithm to benchmark (default: fla-recurrent)",
+    )
+    parser.add_argument(
+        "-o", "--output",
+        type=Path,
+        default=None,
+        help="Output path for solution.json (default: ./solution.json)"
+    )
+    return parser.parse_args()
+
 
 def load_config() -> dict:
     """Load configuration from config.toml."""
@@ -88,19 +113,11 @@ def pack_solution(output_path: Path = None, entry_point: str = None, name: str =
 
 def main():
     """Entry point for pack_solution script."""
-    import argparse
-
-    parser = argparse.ArgumentParser(description="Pack solution files into solution.json")
-    parser.add_argument(
-        "-o", "--output",
-        type=Path,
-        default=None,
-        help="Output path for solution.json (default: ./solution.json)"
-    )
-    args = parser.parse_args()
+    args = parse_args()
+    entry_point = ALGO_ENTRY_POINTS[args.algo]
 
     try:
-        pack_solution(args.output)
+        pack_solution(args.output, entry_point=entry_point, name=args.algo)
     except Exception as e:
         print(f"Error: {e}", file=sys.stderr)
         sys.exit(1)

@@ -13,7 +13,7 @@ PROJECT_ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from flashinfer_bench import Benchmark, BenchmarkConfig, Solution, TraceSet
-from scripts.pack_solution import pack_solution
+from scripts.pack_solution import ALGO_ENTRY_POINTS, pack_solution, parse_args
 
 
 def get_trace_set_path() -> str:
@@ -96,26 +96,6 @@ def print_results(results: dict):
                 print(f" | abs_err={abs_err:.2e}, rel_err={rel_err:.2e}", end="")
 
             print()
-
-
-ALGO_ENTRY_POINTS = {
-    "fla-recurrent": "kernel.py::kernel_fla_recurrent",
-    "pt-reference": "kernel.py::kernel_pt_reference",
-}
-
-
-def parse_args():
-    """Parse command-line arguments."""
-    import argparse
-
-    parser = argparse.ArgumentParser(description="Pack and benchmark GDN kernel")
-    parser.add_argument(
-        "--algo",
-        choices=list(ALGO_ENTRY_POINTS.keys()),
-        default="fla-recurrent",
-        help="Algorithm to benchmark (default: fla-recurrent)",
-    )
-    return parser.parse_args()
 
 
 def main():
