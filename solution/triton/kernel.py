@@ -8,8 +8,9 @@ Definition:  gdn_decode_qk4_v8_d128_k_last
 import math
 import torch
 import torch.nn.functional as F
+import triton
 from fla.ops.gated_delta_rule.fused_recurrent import (
-    fused_recurrent_gated_delta_rule_fwd,
+    fused_recurrent_gated_delta_rule_fwd_kernel,
 )
 
 
@@ -122,14 +123,15 @@ def _reference_decode(q, k, v, state, A_log, a, dt_bias, b, scale):
 
 def _fla_decode(q, k, v, state, A_log, a, dt_bias, b, scale):
     """
-    Wrapper adapting our competition interface to FLA's fused_recurrent_gated_delta_rule_fwd.
+    Wrapper adapting our competition interface to FLA's fused_recurrent_gated_delta_rule_fwd_kernel.
+    Calls the Triton kernel directly instead of fused_recurrent_gated_delta_rule_fwd().
 
     Interface differences:
-        Ours                              FLA
-        ----                              ---
+        Ours                              FLA kernel
+        ----                              ----------
         A_log, a, dt_bias → g (decay)     g: [B, T, HV] log-space decay (pre-computed)
         b → beta (update gate)            beta: [B, T, HV] already sigmoid'd
-        state: [B, H, V, K] (k-last)     initial_state: [B, H, K, V] (k-first)
+        state: [B, H, V, K] (k-last)     h0: [B, H, K, V] (k-first)
         q: [B, T, num_q_heads=4, K]      q: [B, T, H=4, K]  (same)
         k: [B, T, num_k_heads=4, K]      k: [B, T, H=4, K]  (same)
         v: [B, T, num_v_heads=8, V]      v: [B, T, HV=8, V] (same)
@@ -139,6 +141,9 @@ def _fla_decode(q, k, v, state, A_log, a, dt_bias, b, scale):
         new_state: [B, 8, 128, 128] f32 (k-last layout)
     """
     K = q.shape[-1]
+    B, T, H, _ = k.shape
+    V = v.shape[-1]
+    HV = v.shape[2]
 
     if scale is None or scale == 0.0:
         scale = 1.0 / math.sqrt(K)
@@ -156,18 +161,41 @@ def _fla_decode(q, k, v, state, A_log, a, dt_bias, b, scale):
     else:
         initial_state = None
 
-    # Call FLA kernel
-    o, final_state = fused_recurrent_gated_delta_rule_fwd(
-        q=q,  # [B, 1, 4, 128]
-        k=k,  # [B, 1, 4, 128]
-        v=v,  # [B, 1, 8, 128]
-        g=g,  # [B, 1, 8] log-space decay
-        gk=None,  # per-key-dim decay [B,T,HV,K] — unused, GDN uses scalar g per head
-        gv=None,  # per-val-dim decay [B,T,HV,V] — unused, GDN uses scalar g per head
-        beta=beta,  # [B, 1, 8] sigmoid'd gate
+    # Same allocation and grid logic as fused_recurrent_gated_delta_rule_fwd()
+    N = B
+    BK = triton.next_power_of_2(K)
+    BV = min(8, triton.next_power_of_2(V))  # gv is None
+    NV = triton.cdiv(V, BV)
+
+    o = torch.empty_like(v)
+    final_state = q.new_empty(N, HV, K, V, dtype=torch.float32)
+
+    grid = (NV, N * HV)
+    fused_recurrent_gated_delta_rule_fwd_kernel[grid](
+        q=q,
+        k=k,
+        v=v,
+        g=g,
+        gk=None,
+        gv=None,
+        beta=beta,
+        o=o,
+        h0=initial_state,
+        ht=final_state,
+        cu_seqlens=None,
         scale=scale,
-        initial_state=initial_state,  # [B, 8, 128, 128] k-first
-        output_final_state=True,
+        T=T,
+        B=B,
+        H=H,
+        HV=HV,
+        K=K,
+        V=V,
+        BK=BK,
+        BV=BV,
+        IS_BETA_HEADWISE=True,
+        USE_QK_L2NORM_IN_KERNEL=False,
+        num_warps=1,
+        num_stages=3,
     )
 
     # o: [B, 1, 8, 128] — already correct shape and dtype
