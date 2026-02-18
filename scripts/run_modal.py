@@ -35,13 +35,14 @@ app = modal.App("flashinfer-bench")
 trace_volume = modal.Volume.from_name("flashinfer-trace", create_if_missing=True)
 TRACE_SET_PATH = "/data"
 
-image = (
-    modal.Image.debian_slim(python_version="3.12")
-    .pip_install("flashinfer-bench", "torch", "triton", "numpy")
+image = modal.Image.debian_slim(python_version="3.12").pip_install(
+    "flashinfer-bench", "torch", "triton", "numpy", "flash-linear-attention"
 )
 
 
-@app.function(image=image, gpu="B200:1", timeout=3600, volumes={TRACE_SET_PATH: trace_volume})
+@app.function(
+    image=image, gpu="B200:1", timeout=3600, volumes={TRACE_SET_PATH: trace_volume}
+)
 def run_benchmark(solution: Solution, config: BenchmarkConfig = None) -> dict:
     """Run benchmark on Modal B200 and return results."""
     if config is None:
@@ -80,7 +81,9 @@ def run_benchmark(solution: Solution, config: BenchmarkConfig = None) -> dict:
             }
             if trace.evaluation.performance:
                 entry["latency_ms"] = trace.evaluation.performance.latency_ms
-                entry["reference_latency_ms"] = trace.evaluation.performance.reference_latency_ms
+                entry["reference_latency_ms"] = (
+                    trace.evaluation.performance.reference_latency_ms
+                )
                 entry["speedup_factor"] = trace.evaluation.performance.speedup_factor
             if trace.evaluation.correctness:
                 entry["max_abs_error"] = trace.evaluation.correctness.max_absolute_error
