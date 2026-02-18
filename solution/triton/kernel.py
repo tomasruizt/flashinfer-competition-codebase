@@ -1,10 +1,3 @@
-"""
-Gated Delta Net decode kernel.
-
-Entry point: kernel()  (destination-passing style)
-Definition:  gdn_decode_qk4_v8_d128_k_last
-"""
-
 import math
 import torch
 import torch.nn.functional as F
@@ -207,7 +200,9 @@ def _fla_decode(q, k, v, state, A_log, a, dt_bias, b, scale):
 
 @torch.no_grad()
 @torch.compile(fullgraph=True)
-def kernel_fla_recurrent(q, k, v, state, A_log, a, dt_bias, b, scale, output, new_state):
+def kernel_fla_recurrent(
+    q, k, v, state, A_log, a, dt_bias, b, scale, output, new_state
+):
     """DPS entry point: FLA fused recurrent Triton kernel."""
     out, ns = _fla_decode(q, k, v, state, A_log, a, dt_bias, b, scale)
     output.copy_(out)

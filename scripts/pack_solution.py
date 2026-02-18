@@ -19,11 +19,7 @@ except ImportError:
 
 from flashinfer_bench import BuildSpec
 from flashinfer_bench.agents import pack_solution_from_files
-
-ALGO_ENTRY_POINTS = {
-    "fla-recurrent": "kernel.py::kernel_fla_recurrent",
-    "pt-reference": "kernel.py::kernel_pt_reference",
-}
+from scripts.run_modal import ALGO_ENTRY_POINTS
 
 
 def parse_args():

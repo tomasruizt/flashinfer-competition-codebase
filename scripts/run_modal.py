@@ -8,8 +8,13 @@ Setup (one-time):
     modal setup
     modal volume create flashinfer-trace
     modal volume put flashinfer-trace /path/to/flashinfer-trace/
+
+Usage:
+    ALGO=fla-recurrent modal run scripts/run_modal.py
+    ALGO=pt-reference modal run scripts/run_modal.py
 """
 
+import os
 import sys
 from pathlib import Path
 
@@ -19,6 +24,11 @@ sys.path.insert(0, str(PROJECT_ROOT))
 
 import modal
 from flashinfer_bench import Benchmark, BenchmarkConfig, Solution, TraceSet
+
+ALGO_ENTRY_POINTS = {
+    "fla-recurrent": "kernel.py::kernel_fla_recurrent",
+    "pt-reference": "kernel.py::kernel_pt_reference",
+}
 
 app = modal.App("flashinfer-bench")
 
@@ -102,17 +112,19 @@ def print_results(results: dict):
             print()
 
 
+algo = os.getenv("ALGO", "fla-recurrent")
+
+
 @app.local_entrypoint()
 def main():
     """Pack solution and run benchmark on Modal."""
-    from scripts.pack_solution import ALGO_ENTRY_POINTS, pack_solution, parse_args
+    from scripts.pack_solution import pack_solution
 
-    args = parse_args()
-    entry_point = ALGO_ENTRY_POINTS[args.algo]
-    print(f"Algorithm: {args.algo} (entry_point: {entry_point})")
+    entry_point = ALGO_ENTRY_POINTS[algo]
+    print(f"Algorithm: {algo} (entry_point: {entry_point})")
 
     print("Packing solution from source files...")
-    solution_path = pack_solution(entry_point=entry_point, name=args.algo)
+    solution_path = pack_solution(entry_point=entry_point, name=algo)
 
     print("\nLoading solution...")
     solution = Solution.model_validate_json(solution_path.read_text())
