@@ -98,10 +98,35 @@ def print_results(results: dict):
             print()
 
 
+ALGO_ENTRY_POINTS = {
+    "fla-recurrent": "kernel.py::kernel_fla_recurrent",
+    "pt-reference": "kernel.py::kernel_pt_reference",
+}
+
+
+def parse_args():
+    """Parse command-line arguments."""
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Pack and benchmark GDN kernel")
+    parser.add_argument(
+        "--algo",
+        choices=list(ALGO_ENTRY_POINTS.keys()),
+        default="fla-recurrent",
+        help="Algorithm to benchmark (default: fla-recurrent)",
+    )
+    return parser.parse_args()
+
+
 def main():
     """Pack solution and run benchmark."""
+    args = parse_args()
+
+    entry_point = ALGO_ENTRY_POINTS[args.algo]
+    print(f"Algorithm: {args.algo} (entry_point: {entry_point})")
+
     print("Packing solution from source files...")
-    solution_path = pack_solution()
+    solution_path = pack_solution(entry_point=entry_point)
 
     print("\nLoading solution...")
     solution = Solution.model_validate_json(solution_path.read_text())

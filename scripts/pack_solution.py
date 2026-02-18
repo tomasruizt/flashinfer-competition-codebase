@@ -31,7 +31,7 @@ def load_config() -> dict:
         return tomllib.load(f)
 
 
-def pack_solution(output_path: Path = None) -> Path:
+def pack_solution(output_path: Path = None, entry_point: str = None) -> Path:
     """Pack solution files into a Solution JSON."""
     config = load_config()
 
@@ -39,7 +39,8 @@ def pack_solution(output_path: Path = None) -> Path:
     build_config = config["build"]
 
     language = build_config["language"]
-    entry_point = build_config["entry_point"]
+    if entry_point is None:
+        entry_point = build_config["entry_point"]
 
     # Determine source directory based on language
     if language == "triton":

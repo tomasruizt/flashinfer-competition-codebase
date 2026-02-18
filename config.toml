@@ -5,4 +5,4 @@ author = "lmu-css"                # Team/author name
 
 [build]
 language = "triton"               # triton | cuda
-entry_point = "kernel.py::kernel"         # Kernel function name
+entry_point = "kernel.py::kernel_fla_recurrent"         # Kernel function name

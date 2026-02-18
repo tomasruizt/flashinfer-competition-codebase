@@ -1,5 +1,5 @@
 """
-Gated Delta Net decode kernel – PyTorch reference baseline.
+Gated Delta Net decode kernel.
 
 Entry point: kernel()  (destination-passing style)
 Definition:  gdn_decode_qk4_v8_d128_k_last
@@ -8,9 +8,16 @@ Definition:  gdn_decode_qk4_v8_d128_k_last
 import math
 import torch
 import torch.nn.functional as F
+from fla.ops.gated_delta_rule.fused_recurrent import (
+    fused_recurrent_gated_delta_rule_fwd,
+)
 
 
-@torch.compile(fullgraph=True)
+# ---------------------------------------------------------------------------
+# PyTorch reference implementation (for correctness checking / understanding)
+# ---------------------------------------------------------------------------
+
+
 def _reference_decode(q, k, v, state, A_log, a, dt_bias, b, scale):
     """
     Gated Delta Net decode reference implementation (k-last layout).
@@ -81,6 +88,7 @@ def _reference_decode(q, k, v, state, A_log, a, dt_bias, b, scale):
     new_state = torch.zeros_like(state_f32)
     output = torch.zeros(B, num_heads, V, dtype=torch.float32, device=device)
 
+    # fmt: off
     for b_idx in range(B):
         for h_idx in range(num_heads):
             q_h = q_exp[b_idx, h_idx]       # [K=128]        — query vector
@@ -101,20 +109,87 @@ def _reference_decode(q, k, v, state, A_log, a, dt_bias, b, scale):
 
             output[b_idx, h_idx] = scale * (q_h @ h_state)  # [K] @ [K, V] -> [V] — read from state
             new_state[b_idx, h_idx] = h_state.transpose(-1, -2)  # [K,V] -> [V,K] back to storage layout
+    # fmt: on
 
     output = output.unsqueeze(1).to(torch.bfloat16)
     return output, new_state
 
 
-@torch.no_grad()
-def kernel(q, k, v, state, A_log, a, dt_bias, b, scale, output, new_state):
-    """DPS entry point: writes results into pre-allocated output and new_state.
+# ---------------------------------------------------------------------------
+# FLA fused recurrent wrapper (optimized Triton kernel)
+# ---------------------------------------------------------------------------
 
-    Args:
-        q..scale: see _reference_decode.
-        output:    [B, 1, num_v_heads=8, V=128] bf16 — pre-allocated output tensor.
-        new_state: [B, num_v_heads=8, V=128, K=128] f32 — pre-allocated state tensor.
+
+def _fla_decode(q, k, v, state, A_log, a, dt_bias, b, scale):
     """
+    Wrapper adapting our competition interface to FLA's fused_recurrent_gated_delta_rule_fwd.
+
+    Interface differences:
+        Ours                              FLA
+        ----                              ---
+        A_log, a, dt_bias → g (decay)     g: [B, T, HV] log-space decay (pre-computed)
+        b → beta (update gate)            beta: [B, T, HV] already sigmoid'd
+        state: [B, H, V, K] (k-last)     initial_state: [B, H, K, V] (k-first)
+        q: [B, T, num_q_heads=4, K]      q: [B, T, H=4, K]  (same)
+        k: [B, T, num_k_heads=4, K]      k: [B, T, H=4, K]  (same)
+        v: [B, T, num_v_heads=8, V]      v: [B, T, HV=8, V] (same)
+
+    Returns:
+        output:    [B, 1, 8, 128] bf16
+        new_state: [B, 8, 128, 128] f32 (k-last layout)
+    """
+    K = q.shape[-1]
+
+    if scale is None or scale == 0.0:
+        scale = 1.0 / math.sqrt(K)
+
+    # Compute log-space decay: g = log(decay) = -exp(A_log) * softplus(a + dt_bias)
+    # FLA kernel does: h *= exp(g), so g must be log of the decay factor
+    g = -torch.exp(A_log.float()) * F.softplus(a.float() + dt_bias.float())  # [B, 1, 8]
+
+    # Compute beta = sigmoid(b)
+    beta = torch.sigmoid(b.float())  # [B, 1, 8]
+
+    # Transpose state from k-last [B, H, V, K] to k-first [B, H, K, V] for FLA
+    if state is not None:
+        initial_state = state.float().transpose(-1, -2).contiguous()  # [B, 8, K, V]
+    else:
+        initial_state = None
+
+    # Call FLA kernel
+    o, final_state = fused_recurrent_gated_delta_rule_fwd(
+        q=q,  # [B, 1, 4, 128]
+        k=k,  # [B, 1, 4, 128]
+        v=v,  # [B, 1, 8, 128]
+        g=g,  # [B, 1, 8] log-space decay
+        gk=None,  # per-key-dim decay [B,T,HV,K] — unused, GDN uses scalar g per head
+        gv=None,  # per-val-dim decay [B,T,HV,V] — unused, GDN uses scalar g per head
+        beta=beta,  # [B, 1, 8] sigmoid'd gate
+        scale=scale,
+        initial_state=initial_state,  # [B, 8, 128, 128] k-first
+        output_final_state=True,
+    )
+
+    # o: [B, 1, 8, 128] — already correct shape and dtype
+    # final_state: [B, 8, K, V] → transpose back to k-last [B, 8, V, K]
+    new_state = final_state.transpose(-1, -2).contiguous()
+
+    return o.to(torch.bfloat16), new_state
+
+
+@torch.no_grad()
+@torch.compile(fullgraph=True)
+def kernel_fla_recurrent(q, k, v, state, A_log, a, dt_bias, b, scale, output, new_state):
+    """DPS entry point: FLA fused recurrent Triton kernel."""
+    out, ns = _fla_decode(q, k, v, state, A_log, a, dt_bias, b, scale)
+    output.copy_(out)
+    new_state.copy_(ns)
+
+
+@torch.no_grad()
+@torch.compile(fullgraph=True)
+def kernel_pt_reference(q, k, v, state, A_log, a, dt_bias, b, scale, output, new_state):
+    """DPS entry point: torch.compile'd PyTorch reference."""
     out, ns = _reference_decode(q, k, v, state, A_log, a, dt_bias, b, scale)
     output.copy_(out)
     new_state.copy_(ns)
