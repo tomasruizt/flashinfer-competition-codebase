@@ -174,6 +174,13 @@ python scripts/run_local.py --algo=pt-reference      # compiled PyTorch referenc
 | pt-reference (compiled) | ~0.73 ms | ~1.8x |
 | fla-recurrent (compiled) | ~0.14 ms | ~9.5x |
 
+## Modal Deployment Notes
+- The Modal image must install ALL Python packages that `kernel.py` imports at the top level
+- `flash-linear-attention` (the `fla` package) is NOT a dependency of `flashinfer-bench` — must be explicitly added to the Modal image
+- If a top-level import fails on Modal, the benchmark reports `COMPILE_ERROR` for every workload (the module can't even be loaded)
+- The benchmark framework's `COMPILE_ERROR` status is opaque — it covers import errors, torch.compile failures, and any other pre-execution errors, with no error message surfaced in the output
+- To debug Modal errors: check that all imports in `kernel.py` are available in the Modal image (`run_modal.py` `.pip_install(...)`)
+
 ## flashinfer-bench Internals
 - Source: `/home/tomasruiz/miniforge3/envs/fi-bench/lib/python3.12/site-packages/flashinfer_bench/`
 - Builder loads solution, imports as Python module, gets entry_point via `getattr()`
