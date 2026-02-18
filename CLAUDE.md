@@ -168,11 +168,11 @@ python scripts/run_local.py --algo=pt-reference      # compiled PyTorch referenc
 - To separate algos in the trace file, use different solution names via `pack_solution(name=...)`
 
 ### Performance baselines (RTX 3090)
-| Algo | Latency | Speedup vs reference |
-|---|---|---|
-| pt-reference (eager) | ~1.4 ms | ~1.0x |
-| pt-reference (compiled) | ~0.73 ms | ~1.8x |
-| fla-recurrent (compiled) | ~0.14 ms | ~9.5x |
+| Algo                     | Latency  | Speedup vs reference |
+| ------------------------ | -------- | -------------------- |
+| pt-reference (eager)     | ~1.4 ms  | ~1.0x                |
+| pt-reference (compiled)  | ~0.73 ms | ~1.8x                |
+| fla-recurrent (compiled) | ~0.14 ms | ~9.5x                |
 
 ## Modal Deployment Notes
 - The Modal image must install ALL Python packages that `kernel.py` imports at the top level
