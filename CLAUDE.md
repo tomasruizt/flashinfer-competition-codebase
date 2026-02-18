@@ -22,15 +22,94 @@
 - `definition` must be the exact definition name from the dataset (e.g. `gdn_decode_qk4_v8_d128_k_last`), not the track name (`gated_delta_net`)
 - DPS (Destination Passing Style) is default: kernel receives pre-allocated output tensors as extra args
 
+## What is GDN?
+
+GDN (Gated Delta Net) is an **alternative to softmax attention** for LLMs. It replaces the O(n) per-token attention decode with an O(1) recurrent state update. Used in production: Qwen3-Next-80B (75% GDN layers), Kimi Linear-48B.
+
+### GDN vs Attention at decode time
+|                      | Compute per token                         | Memory                             |
+| -------------------- | ----------------------------------------- | ---------------------------------- |
+| **Causal Attention** | O(n) — dot product with all n cached keys | O(n) — KV cache grows with context |
+| **GDN**              | O(1) — fixed 128x128 state matrix ops     | O(1) — constant state size         |
+
+### Where GDN sits in the transformer
+```
+x = x + gdn_layer(norm(x))    # replaces attention sublayer
+x = x + mlp(norm(x))          # FFN sublayer unchanged
+```
+
+### Full GDN layer (our kernel is the middle part)
+```python
+# --- Input projections (outside our kernel) ---
+q = x @ W_q                    # [B, 1, num_q_heads, K]
+k = l2_normalize(x @ W_k)     # [B, 1, num_k_heads, K]  (L2-normalized!)
+v = x @ W_v                    # [B, 1, num_v_heads, V]
+a = x @ W_a                    # [B, 1, num_v_heads]
+b = x @ W_b                    # [B, 1, num_v_heads]
+
+# --- Our kernel (the competition part) ---
+g     = exp(-exp(A_log) * softplus(a + dt_bias))   # global decay ∈ (0,1)
+beta  = sigmoid(b)                                  # update gate ∈ (0,1)
+S_new = g * S - k^T @ (k @ S) + k^T @ (beta * v + (1-beta) * (k @ S))
+out   = scale * q @ S_new
+
+# --- Output projection (outside our kernel) ---
+out = reshape(out) @ W_o       # back to hidden dim
+```
+
+### Decode kernel hot loop — per head operations
+All ops are on 128-dim vectors and a 128x128 state matrix:
+```
+g_val                          # scalar         — global decay
+beta_val                       # scalar         — update gate
+h_state                        # [K=128, V=128] — state (transposed from [V,K] storage)
+
+old_state = g_val * h_state    # [K, V]         — scale: decayed state
+old_v = k @ old_state          # [K]@[K,V]->[V] — matvec: current value at key k
+new_v = beta*v + (1-beta)*old_v # [V]           — blend: new/old value
+state_remove = k^T @ old_v     # [K,1]@[1,V]->[K,V] — outer product: erase old
+state_update = k^T @ new_v     # [K,1]@[1,V]->[K,V] — outer product: write new
+h_state = old_state - state_remove + state_update  # [K,V] — updated state
+output = scale * (q @ h_state) # [K]@[K,V]->[V] — matvec: read from state
+```
+Summary: **2 matvecs** (k@S, q@S), **2 outer products** (k^T@old_v, k^T@new_v), plus elementwise ops.
+
+### Gate computation: why so complex?
+```
+g = exp(-exp(A_log) * softplus(a + dt_bias))
+```
+- Inherited from SSM literature (S4 → Mamba → GDN). This is the **exact discretization** of continuous-time decay `dS/dt = -A*S`.
+- `A_log` (log-space) lets the model learn decay rates spanning orders of magnitude.
+- `softplus(a + dt_bias)` is a learned "timestep" — positive, smooth, input-dependent.
+- `exp(-positive * positive)` guarantees g ∈ (0,1) by construction.
+- Each of the 8 heads learns its own decay rate (A_log has shape [8]).
+
+### GVA (Grouped Value Attention)
+From Qwen3-Next-80B with TP=4:
+- Full model: 16 q/k heads, 32 v heads → after TP=4: **4 q/k heads, 8 v heads**
+- Each q/k head is **repeat-interleaved** to serve 2 v heads:
+  ```
+  v_head 0,1 ← q/k head 0
+  v_head 2,3 ← q/k head 1
+  v_head 4,5 ← q/k head 2
+  v_head 6,7 ← q/k head 3
+  ```
+- Analogous to GQA in standard transformers, but inverted (GQA: more q than kv; GVA: more v than qk)
+- The loop runs over num_v_heads=8 because q/k are expanded before the loop
+
+### State layout: "k-last"
+- Storage: `[B, H=8, V=128, K=128]` — "k-last" means K dimension is last
+- Computation: transposed to `[K, V]` so that `k @ S` and `q @ S` are natural matvecs
+- Transposed back to `[V, K]` before writing to output
+
 ## GDN Track: Two Kernels
 Each kernel is a separate definition, needs a separate `config.toml` definition entry:
 
 ### 1. Decode: `gdn_decode_qk4_v8_d128_k_last`
 - Single-token generation (seq_len=1)
-- Shapes: `q/k: [B, 1, 4, 128]`, `v: [B, 1, 8, 128]`, `state: [B, 8, 128, 128]` (f32)
-- GVA config: 4 q/k heads, 8 v heads (v_heads = 2x q_heads, heads repeat-interleaved)
-- Inputs: q, k, v, state, A_log, a, dt_bias, b, scale
-- Outputs (DPS): output `[B, 1, 8, 128]` (bf16), new_state `[B, 8, 128, 128]` (f32)
+- Shapes: `q/k: [B, 1, 4, 128]` bf16, `v: [B, 1, 8, 128]` bf16, `state: [B, 8, 128, 128]` f32
+- Scalar inputs: `A_log: [8]` f32, `dt_bias: [8]` f32, `a: [B, 1, 8]` bf16, `b: [B, 1, 8]` bf16, `scale: f32`
+- Outputs (DPS): `output [B, 1, 8, 128]` bf16, `new_state [B, 8, 128, 128]` f32
 - All 20 workloads use batch_size=1
 - Memory-bound regime
 
@@ -38,17 +117,8 @@ Each kernel is a separate definition, needs a separate `config.toml` definition 
 - Variable-length batched sequences (uses `cu_seqlens`)
 - Shapes: `q/k: [total_seq_len, 4, 128]`, `v: [total_seq_len, 8, 128]`, `state: [num_seqs, 8, 128, 128]`
 - Inputs: q, k, v, state, A_log, a, dt_bias, b, cu_seqlens, scale
-- Outputs (DPS): output `[total_seq_len, 8, 128]` (bf16), new_state `[num_seqs, 8, 128, 128]` (f32)
+- Outputs (DPS): `output [total_seq_len, 8, 128]` bf16, `new_state [num_seqs, 8, 128, 128]` f32
 - Compute-bound regime (chunkwise parallelism, WY factorization)
-
-### Core Recurrence (both kernels)
-```
-g = exp(-exp(A_log) * softplus(a + dt_bias))    # global decay gate
-beta = sigmoid(b)                                 # update gate
-state = g * state + k^T @ (beta * v + (1-beta) * k @ state) - k^T @ (k @ state)
-output = scale * q @ state
-```
-State layout is "k-last": `[..., V, K]` in storage, transposed to `[K, V]` for computation.
 
 ## Benchmark Methodology
 - `run_local.py` uses: warmup_runs=3, iterations=100, num_trials=5
