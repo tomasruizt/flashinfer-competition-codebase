@@ -155,6 +155,7 @@ def kernel_fla_recurrent(
         beta=beta,
         o=output,
         h0=initial_state,
+        USE_INITIAL_STATE=initial_state is not None,
         ht=ht_kfirst,
         scale=scale,
         B=B,
@@ -180,7 +181,6 @@ def kernel_fla_recurrent(
 # ---------------------------------------------------------------------------
 
 
-@triton.heuristics({"USE_INITIAL_STATE": lambda args: args["h0"] is not None})
 @triton.jit
 def fused_recurrent_gated_delta_rule_fwd_kernel(
     q,
@@ -226,19 +226,23 @@ def fused_recurrent_gated_delta_rule_fwd_kernel(
     mask_h = mask_k[:, None] & mask_v[None, :]  # [BK, BV]
 
     # Load state tile
+    if PROFILE:
+        pl.enter_scope("load_initial_state")
     b_h = tl.zeros([BK, BV], dtype=tl.float32)  # [BK=128, BV=8] slice of [K, V]
     if USE_INITIAL_STATE:
         p_h0 = h0 + i_nh * K * V + o_k[:, None] * V + o_v[None, :]
         b_h += tl.load(p_h0, mask=mask_h, other=0).to(tl.float32)  # [BK, BV] from GMEM
+    if PROFILE:
+        pl.exit_scope("load_initial_state")
 
     # Load inputs (single token)
     if PROFILE:
-        pl.enter_scope("load_issue")
+        pl.enter_scope("load_qkv")
     b_q = tl.load(p_q, mask=mask_k, other=0).to(tl.float32)  # [BK] — query
     b_k = tl.load(p_k, mask=mask_k, other=0).to(tl.float32)  # [BK] — key
     b_v = tl.load(p_v, mask=mask_v, other=0).to(tl.float32)  # [BV] — value
     if PROFILE:
-        pl.exit_scope("load_issue")
+        pl.exit_scope("load_qkv")
 
     b_q = b_q * scale  # [BK] — scaled query
     b_beta = tl.load(p_beta).to(tl.float32)  # scalar — update gate
@@ -256,10 +260,17 @@ def fused_recurrent_gated_delta_rule_fwd_kernel(
 
     # q@S: sum([BK, BV] * [BK, 1], dim=0) -> [BV]    (matvec: read output from state)
     b_o = tl.sum(b_h * b_q[:, None], 0)
+    if PROFILE:
+        pl.enter_scope("store_output")
     tl.store(p_o, b_o.to(p_o.dtype.element_ty), mask=mask_v)  # [BV] -> GMEM
+    if PROFILE:
+        pl.exit_scope("store_output")
 
     # Store final state
     p_ht = ht + i_nh * K * V + o_k[:, None] * V + o_v[None, :]
+    if PROFILE:
+        pl.enter_scope("store_final_state")
     tl.store(p_ht, b_h.to(p_ht.dtype.element_ty), mask=mask_h)  # [BK, BV] -> GMEM
     if PROFILE:
+        pl.exit_scope("store_final_state")
         pl.exit_scope("gdn_recurrent")
