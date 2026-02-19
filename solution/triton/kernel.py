@@ -117,6 +117,7 @@ def kernel_fla_recurrent(
     """
     K = q.shape[-1]
     B, T, H, _ = k.shape
+    assert T == 1
     V = v.shape[-1]
     HV = v.shape[2]
 
@@ -156,7 +157,6 @@ def kernel_fla_recurrent(
         h0=initial_state,
         ht=ht_kfirst,
         scale=scale,
-        T=T,
         B=B,
         H=H,
         HV=HV,
@@ -180,10 +180,8 @@ def kernel_fla_recurrent(
 # ---------------------------------------------------------------------------
 
 
-@triton.heuristics(
-    {"USE_INITIAL_STATE": lambda args: args["h0"] is not None}
-)
-@triton.jit(do_not_specialize=["T"])
+@triton.heuristics({"USE_INITIAL_STATE": lambda args: args["h0"] is not None})
+@triton.jit
 def fused_recurrent_gated_delta_rule_fwd_kernel(
     q,
     k,
@@ -194,7 +192,6 @@ def fused_recurrent_gated_delta_rule_fwd_kernel(
     h0,
     ht,
     scale,
-    T,
     B: tl.constexpr,
     H: tl.constexpr,
     HV: tl.constexpr,
@@ -213,61 +210,53 @@ def fused_recurrent_gated_delta_rule_fwd_kernel(
     i_n, i_hv = i_nh // HV, i_nh % HV  # batch index, v-head index
     i_h = i_hv // (HV // H)  # q/k-head index (GVA: 2 v-heads per qk-head)
 
-    bos, eos = i_n * T, i_n * T + T
     o_k = tl.arange(0, BK)  # [BK] — offsets into K dimension
     o_v = i_v * BV + tl.arange(0, BV)  # [BV] — offsets into V dimension (tile)
 
-    # Pointers to the start of this (batch, head, token=bos) for each input
-    p_q = q + (bos * H + i_h) * K + o_k  # q: [B*T, H, K] flattened
-    p_k = k + (bos * H + i_h) * K + o_k  # k: [B*T, H, K] flattened
-    p_v = v + (bos * HV + i_hv) * V + o_v  # v: [B*T, HV, V] flattened
-    p_g = g + bos * HV + i_hv  # g: [B*T, HV] — scalar per head per token
-    p_beta = beta + bos * HV + i_hv  # beta: [B*T, HV] — scalar per head per token
-    p_o = o + (bos * HV + i_hv) * V + o_v  # o: [B*T, HV, V] flattened
+    # Pointers into this (batch=i_n, head) for the single token (T=1)
+    p_q = q + (i_n * H + i_h) * K + o_k  # q: [B, H, K] flattened
+    p_k = k + (i_n * H + i_h) * K + o_k  # k: [B, H, K] flattened
+    p_v = v + (i_n * HV + i_hv) * V + o_v  # v: [B, HV, V] flattened
+    p_g = g + i_n * HV + i_hv  # g: [B, HV] — scalar per head
+    p_beta = beta + i_n * HV + i_hv  # beta: [B, HV] — scalar per head
+    p_o = o + (i_n * HV + i_hv) * V + o_v  # o: [B, HV, V] flattened
 
     mask_k = o_k < K  # [BK]
     mask_v = o_v < V  # [BV]
     mask_h = mask_k[:, None] & mask_v[None, :]  # [BK, BV]
 
-    b_h = tl.zeros([BK, BV], dtype=tl.float32)  # state tile: [BK=128, BV=8] slice of [K, V]
+    # Load state tile
+    b_h = tl.zeros([BK, BV], dtype=tl.float32)  # [BK=128, BV=8] slice of [K, V]
     if USE_INITIAL_STATE:
         p_h0 = h0 + i_nh * K * V + o_k[:, None] * V + o_v[None, :]
         b_h += tl.load(p_h0, mask=mask_h, other=0).to(tl.float32)  # [BK, BV] from GMEM
 
-    for _ in range(0, T):
-        if PROFILE:
-            pl.enter_scope("load_issue")
-        b_q = tl.load(p_q, mask=mask_k, other=0).to(tl.float32)  # [BK] — query
-        b_k = tl.load(p_k, mask=mask_k, other=0).to(tl.float32)  # [BK] — key
-        b_v = tl.load(p_v, mask=mask_v, other=0).to(tl.float32)  # [BV] — value
-        if PROFILE:
-            pl.exit_scope("load_issue")
+    # Load inputs (single token)
+    if PROFILE:
+        pl.enter_scope("load_issue")
+    b_q = tl.load(p_q, mask=mask_k, other=0).to(tl.float32)  # [BK] — query
+    b_k = tl.load(p_k, mask=mask_k, other=0).to(tl.float32)  # [BK] — key
+    b_v = tl.load(p_v, mask=mask_v, other=0).to(tl.float32)  # [BV] — value
+    if PROFILE:
+        pl.exit_scope("load_issue")
 
-        b_q = b_q * scale  # [BK] — scaled query
-        b_beta = tl.load(p_beta).to(tl.float32)  # scalar — update gate
+    b_q = b_q * scale  # [BK] — scaled query
+    b_beta = tl.load(p_beta).to(tl.float32)  # scalar — update gate
 
-        # Decay state
-        b_g = tl.load(p_g).to(tl.float32)  # scalar — log decay
-        b_h *= tl.exp(b_g)  # [BK, BV] *= scalar
+    # Decay state
+    b_g = tl.load(p_g).to(tl.float32)  # scalar — log decay
+    b_h *= tl.exp(b_g)  # [BK, BV] *= scalar
 
-        # Delta rule: retrieve old value, blend with new, update state
-        # k@S:   sum([BK, BV] * [BK, 1], dim=0) -> [BV]  (matvec: value stored at key k)
-        # blend: scalar * ([BV] - [BV]) -> [BV]           (beta-weighted delta)
-        b_v = b_beta * (b_v - tl.sum(b_h * b_k[:, None], 0))
-        # outer product: [BK, 1] * [BV] -> [BK, BV]      (state update)
-        b_h += b_k[:, None] * b_v
+    # Delta rule: retrieve old value, blend with new, update state
+    # k@S:   sum([BK, BV] * [BK, 1], dim=0) -> [BV]  (matvec: value stored at key k)
+    # blend: scalar * ([BV] - [BV]) -> [BV]           (beta-weighted delta)
+    b_v = b_beta * (b_v - tl.sum(b_h * b_k[:, None], 0))
+    # outer product: [BK, 1] * [BV] -> [BK, BV]      (state update)
+    b_h += b_k[:, None] * b_v
 
-        # q@S: sum([BK, BV] * [BK, 1], dim=0) -> [BV]    (matvec: read output from state)
-        b_o = tl.sum(b_h * b_q[:, None], 0)
-        tl.store(p_o, b_o.to(p_o.dtype.element_ty), mask=mask_v)  # [BV] -> GMEM
-
-        # Advance pointers to next token
-        p_q += H * K
-        p_k += H * K
-        p_v += HV * V
-        p_g += HV
-        p_beta += HV
-        p_o += HV * V
+    # q@S: sum([BK, BV] * [BK, 1], dim=0) -> [BV]    (matvec: read output from state)
+    b_o = tl.sum(b_h * b_q[:, None], 0)
+    tl.store(p_o, b_o.to(p_o.dtype.element_ty), mask=mask_v)  # [BV] -> GMEM
 
     # Store final state
     p_ht = ht + i_nh * K * V + o_k[:, None] * V + o_v[None, :]
