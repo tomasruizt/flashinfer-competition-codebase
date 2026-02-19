@@ -295,7 +295,8 @@ def blocked_matmul_pipelined(A, B, C, BLOCK_M, BLOCK_N, BLOCK_K, num_warps):
 
 if __name__ == "__main__":
     if not is_hopper():
-        raise RuntimeError("This tutorial requires a Hopper NVIDIA GPU")
+        print("The Matrix-Multiply tutorial requires a Hopper NVIDIA GPU")
+        exit(0)
 
     description = "Gluon Matrix Multiplication with Proton Intra-Kernel Profiling"
     print(description)

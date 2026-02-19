@@ -13,8 +13,8 @@
 - `scripts/pack_solution.py` — Packs solution into `solution.json`.
 
 ## Environment
-- Conda env: `fi-bench` (Python 3.12)
-- Packages: `flashinfer-bench`, `modal`, `torch 2.9.1`, `triton 3.5.1`
+- Venv: `.venv/` in project root
+- Packages: `flashinfer-bench`, `modal`, `torch`, `triton`
 - Dataset: `~/code/mlsys26-contest` (env var `FIB_DATASET_PATH`, set in `~/.bashrc`)
 
 ## Config Notes
@@ -194,16 +194,14 @@ python scripts/run_local.py --algo=pt-reference      # compiled PyTorch referenc
 - **Gluon** (`triton.experimental.gluon`) is also available in triton 3.5.1 — low-level Triton extension for TMA, warpgroup MMA, mbarrier, etc. (Hopper-only features)
 
 ## Running Scripts Locally
-- **pyenv intercepts `python3`** on this machine — always use the full conda path to run scripts:
+- Use the project venv to run scripts:
   ```bash
-  /home/tomasruiz/miniforge3/envs/fi-bench/bin/python script.py
+  .venv/bin/python script.py
   ```
-- `conda run -n fi-bench` does NOT work correctly (pyenv shim takes priority, runs Python 3.11 with triton 2.1.0 instead of Python 3.12 with triton 3.5.1)
-- The pyenv Python has an old torch 2.1.2 + triton 2.1.0 — missing `triton.profiler`, `triton.experimental.gluon`, etc.
 - Local GPU: RTX 3090 (Ampere SM86) — cannot run Hopper-only features (TMA, warpgroup MMA, Gluon matmul examples)
 
 ## flashinfer-bench Internals
-- Source: `/home/tomasruiz/miniforge3/envs/fi-bench/lib/python3.12/site-packages/flashinfer_bench/`
+- Source: `.venv/lib/python3.11/site-packages/flashinfer_bench/` (or find via `.venv/bin/python -c "import flashinfer_bench; print(flashinfer_bench.__path__)"`)
 - Builder loads solution, imports as Python module, gets entry_point via `getattr()`
 - `Runnable` wraps the callable, handles DPS vs value-returning dispatch
 - `PersistentRunner` spawns subprocess workers per GPU device
