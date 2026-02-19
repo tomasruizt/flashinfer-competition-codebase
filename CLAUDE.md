@@ -187,11 +187,26 @@ python scripts/run_local.py --algo=pt-reference      # compiled PyTorch referenc
 - Gluon kernels (`@gluon.jit`) also support the same `pl.scope()` annotations
 - Must call `pl.enable_semantic("triton")` before launching profiled Triton kernels
 - Two profiling modes:
-  - **Timeline trace**: `proton.start("name", data="trace", backend="instrumentation", mode=mode)` → outputs `.chrome_trace` file (view in `chrome://tracing`)
+  - **Timeline trace**: `proton.start("name", data="trace", backend="instrumentation", mode=mode)` → outputs `.chrome_trace` file (view in Perfetto or `chrome://tracing`)
   - **Op measurement**: `proton.start("name", backend="instrumentation", mode=mode)` → outputs `.hatchet` file (view with `proton-viewer -m normalized_cycles`)
 - Warp sampling: `proton.mode.Default(sampling_strategy="selective", sampling_options="0,2")` to profile only specific warps
 - Example: `timeline/example_dsl.py` (vector add + Gluon matmul; matmul requires Hopper GPU)
 - **Gluon** (`triton.experimental.gluon`) is also available in triton 3.5.1 — low-level Triton extension for TMA, warpgroup MMA, mbarrier, etc. (Hopper-only features)
+
+### Profiling the GDN decode kernel
+- Script: `scripts/profile_proton.py` — run via `make proton-fla`
+- Output: `profiles/gdn_decode.chrome_trace` and `profiles/gdn_decode.hatchet`
+- **torch.compile incompatibility**: torch.compile serializes Triton kernel source into a new scope, losing the `pl` import → `NameError`. Fix: `torch._dynamo.config.disable = True` for profiling.
+- **Scope toggling**: `PROTON_PROFILE` env var read at call time in the wrapper, passed as `PROFILE: tl.constexpr` to the kernel. When `False`, Triton eliminates dead branches at AST level → no `pl` references → torch.compile works. When `True` (profiling), dynamo is disabled → `pl` resolves normally.
+- Kernel scopes: `load_initial_state`, `load_qkv`, `state_update`, `store_output`, `store_final_state`
+
+### Decode kernel profiling results (RTX 3090)
+- **Memory-bound**: loads/stores dominate, compute is minor
+- `load_initial_state` ~40% — loading [BK=128, BV=8] f32 state tile from GMEM (16 tiles per head)
+- `load_qkv` ~25% — loading q [BK], k [BK], v [BV] vectors
+- `state_update` ~15% — delta rule matvecs + outer product (the actual compute)
+- `store_final_state` ~15% — writing updated state tile back to GMEM
+- `store_output` negligible — just [BV=8] values per tile
 
 ## Running Scripts Locally
 - Use the project venv to run scripts:
