@@ -100,14 +100,13 @@ def kernel_pt_reference(q, k, v, state, A_log, a, dt_bias, b, scale, output, new
 
 
 @torch.no_grad()
-@torch.compile(fullgraph=True)
 def kernel_fla_recurrent(
     q, k, v, state, A_log, a, dt_bias, b, scale, output, new_state
 ):
     """
     Wrapper adapting our competition interface to the fused Triton kernel.
     Gate computation (decay, sigmoid) is fused into the kernel.
-    State transpose k-last→k-first still done here (kernel uses k-first layout).
+    Kernel works directly with k-last [V, K] state layout — no transposes needed.
     """
     K = q.shape[-1]
     B, T, H, _ = k.shape
@@ -118,17 +117,10 @@ def kernel_fla_recurrent(
     if scale is None or scale == 0.0:
         scale = 1.0 / math.sqrt(K)
 
-    # Transpose state from k-last [B, H, V, K] to k-first [B, H, K, V]
-    initial_state = state.float().transpose(-1, -2).contiguous()  # [B, 8, K, V]
-
     N = B
     BK = 128
-    BV = 32  # autotune winner on RTX 3090 (was 8 in original FLA)
+    BV = 32
     NV = triton.cdiv(V, BV)
-
-    # Kernel writes ht in k-first [B, HV, K, V] layout, but DPS new_state is
-    # k-last [B, HV, V, K] — need a temp buffer for the transpose.
-    ht_kfirst = q.new_empty(N, HV, K, V, dtype=torch.float32)
 
     grid = (NV, N * HV)
     fused_recurrent_gated_delta_rule_fwd_kernel[grid](
@@ -140,9 +132,9 @@ def kernel_fla_recurrent(
         dt_bias=dt_bias,
         b_gate=b,
         o=output,
-        h0=initial_state,
+        h0=state,
         USE_INITIAL_STATE=True,
-        ht=ht_kfirst,
+        ht=new_state,
         scale=scale,
         B=B,
         H=H,
@@ -155,9 +147,6 @@ def kernel_fla_recurrent(
         num_warps=2,
         num_stages=3,
     )
-
-    # ht_kfirst: [B, 8, K, V] → transpose to k-last [B, 8, V, K] into DPS buffer
-    new_state.copy_(ht_kfirst.transpose(-1, -2))
 
 
 # ---------------------------------------------------------------------------
@@ -191,7 +180,7 @@ def fused_recurrent_gated_delta_rule_fwd_kernel(
     PROFILE: tl.constexpr = False,
 ):
     # Grid: (NV=V/BV, B*HV) — each program handles a [BK, BV] tile of one head's state
-    # For decode: BK=128 (full K), BV=8, so NV=16 tiles cover the 128-wide V dimension
+    # State is k-last layout [V, K]: element (k, v) at offset v*K + k
     if PROFILE:
         pl.enter_scope("gdn_recurrent")
     i_v, i_nh = tl.program_id(0), tl.program_id(1)
@@ -216,7 +205,7 @@ def fused_recurrent_gated_delta_rule_fwd_kernel(
         pl.enter_scope("load_initial_state")
     b_h = tl.zeros([BK, BV], dtype=tl.float32)  # [BK=128, BV=8] slice of [K, V]
     if USE_INITIAL_STATE:
-        p_h0 = h0 + i_nh * K * V + o_k[:, None] * V + o_v[None, :]
+        p_h0 = h0 + i_nh * V * K + o_v[None, :] * K + o_k[:, None]  # k-last [V, K]
         b_h += tl.load(p_h0, mask=mask_h, other=0).to(tl.float32)  # [BK, BV] from GMEM
     if PROFILE:
         pl.exit_scope("load_initial_state")
@@ -263,7 +252,7 @@ def fused_recurrent_gated_delta_rule_fwd_kernel(
         pl.exit_scope("store_output")
 
     # Store final state
-    p_ht = ht + i_nh * K * V + o_k[:, None] * V + o_v[None, :]
+    p_ht = ht + i_nh * V * K + o_v[None, :] * K + o_k[:, None]  # k-last [V, K]
     if PROFILE:
         pl.enter_scope("store_final_state")
     tl.store(p_ht, b_h.to(p_ht.dtype.element_ty), mask=mask_h)  # [BK, BV] -> GMEM
