@@ -16,18 +16,14 @@ def kernel_fla_recurrent(
     q, k, v, state, A_log, a, dt_bias, b, scale, output, new_state
 ):
     """DPS entry point: FLA fused recurrent Triton kernel."""
-    out, ns = _fla_decode(q, k, v, state, A_log, a, dt_bias, b, scale)
-    output.copy_(out)
-    new_state.copy_(ns)
+    _fla_decode(q, k, v, state, A_log, a, dt_bias, b, scale, output, new_state)
 
 
 @torch.no_grad()
 @torch.compile(fullgraph=True)
 def kernel_pt_reference(q, k, v, state, A_log, a, dt_bias, b, scale, output, new_state):
     """DPS entry point: torch.compile'd PyTorch reference."""
-    out, ns = _reference_decode(q, k, v, state, A_log, a, dt_bias, b, scale)
-    output.copy_(out)
-    new_state.copy_(ns)
+    _reference_decode(q, k, v, state, A_log, a, dt_bias, b, scale, output, new_state)
 
 
 # ---------------------------------------------------------------------------
@@ -35,10 +31,10 @@ def kernel_pt_reference(q, k, v, state, A_log, a, dt_bias, b, scale, output, new
 # ---------------------------------------------------------------------------
 
 
-def _fla_decode(q, k, v, state, A_log, a, dt_bias, b, scale):
+def _fla_decode(q, k, v, state, A_log, a, dt_bias, b, scale, output, new_state):
     """
     Wrapper adapting our competition interface to FLA's fused_recurrent_gated_delta_rule_fwd_kernel.
-    Calls the Triton kernel directly instead of fused_recurrent_gated_delta_rule_fwd().
+    Writes directly into DPS buffers (output, new_state).
 
     Interface differences:
         Ours                              FLA kernel
@@ -46,13 +42,6 @@ def _fla_decode(q, k, v, state, A_log, a, dt_bias, b, scale):
         A_log, a, dt_bias → g (decay)     g: [B, T, HV] log-space decay (pre-computed)
         b → beta (update gate)            beta: [B, T, HV] already sigmoid'd
         state: [B, H, V, K] (k-last)     h0: [B, H, K, V] (k-first)
-        q: [B, T, num_q_heads=4, K]      q: [B, T, H=4, K]  (same)
-        k: [B, T, num_k_heads=4, K]      k: [B, T, H=4, K]  (same)
-        v: [B, T, num_v_heads=8, V]      v: [B, T, HV=8, V] (same)
-
-    Returns:
-        output:    [B, 1, 8, 128] bf16
-        new_state: [B, 8, 128, 128] f32 (k-last layout)
     """
     K = q.shape[-1]
     B, T, H, _ = k.shape
@@ -75,14 +64,14 @@ def _fla_decode(q, k, v, state, A_log, a, dt_bias, b, scale):
     else:
         initial_state = None
 
-    # Same allocation and grid logic as fused_recurrent_gated_delta_rule_fwd()
     N = B
     BK = triton.next_power_of_2(K)
     BV = min(8, triton.next_power_of_2(V))  # gv is None
     NV = triton.cdiv(V, BV)
 
-    o = torch.empty_like(v)
-    final_state = q.new_empty(N, HV, K, V, dtype=torch.float32)
+    # Kernel writes ht in k-first [B, HV, K, V] layout, but DPS new_state is
+    # k-last [B, HV, V, K] — need a temp buffer for the transpose.
+    ht_kfirst = q.new_empty(N, HV, K, V, dtype=torch.float32)
 
     grid = (NV, N * HV)
     fused_recurrent_gated_delta_rule_fwd_kernel[grid](
@@ -93,9 +82,9 @@ def _fla_decode(q, k, v, state, A_log, a, dt_bias, b, scale):
         gk=None,
         gv=None,
         beta=beta,
-        o=o,
+        o=output,
         h0=initial_state,
-        ht=final_state,
+        ht=ht_kfirst,
         cu_seqlens=None,
         scale=scale,
         T=T,
@@ -112,11 +101,8 @@ def _fla_decode(q, k, v, state, A_log, a, dt_bias, b, scale):
         num_stages=3,
     )
 
-    # o: [B, 1, 8, 128] — already correct shape and dtype
-    # final_state: [B, 8, K, V] → transpose back to k-last [B, 8, V, K]
-    new_state = final_state.transpose(-1, -2).contiguous()
-
-    return o.to(torch.bfloat16), new_state
+    # ht_kfirst: [B, 8, K, V] → transpose to k-last [B, 8, V, K] into DPS buffer
+    new_state.copy_(ht_kfirst.transpose(-1, -2))
 
 
 # ---------------------------------------------------------------------------
@@ -124,31 +110,30 @@ def _fla_decode(q, k, v, state, A_log, a, dt_bias, b, scale):
 # ---------------------------------------------------------------------------
 
 
-def _reference_decode(q, k, v, state, A_log, a, dt_bias, b, scale):
+def _reference_decode(q, k, v, state, A_log, a, dt_bias, b, scale, output, new_state):
     """
     Gated Delta Net decode reference implementation (k-last layout).
+    Writes directly into DPS buffers (output, new_state).
 
     Single-token recurrent step: reads from a fixed-size state matrix using q,
     then updates the state by erasing old information at key k and writing new
     value v. GVA config: q/k heads are repeat-interleaved to match v heads.
 
     Args:
-        q:       [B, 1, num_q_heads=4, K=128]  bf16 — query, used to read from state.
-        k:       [B, 1, num_k_heads=4, K=128]  bf16 — key, the "address" to erase/write in state.
-        v:       [B, 1, num_v_heads=8, V=128]  bf16 — value, new information to write into state.
-        state:   [B, num_v_heads=8, V=128, K=128] f32 — recurrent state (k-last layout [H,V,K]).
-                 Optional; zeros if None.
-        A_log:   [num_v_heads=8]                f32 — learnable log-space base decay rate per head.
-                 Controls how fast each head forgets: g = exp(-exp(A_log) * softplus(a + dt_bias)).
-        a:       [B, 1, num_v_heads=8]          bf16 — input-dependent decay (per token, per head).
-        dt_bias: [num_v_heads=8]                f32 — learnable decay bias, added to a before softplus.
-        b:       [B, 1, num_v_heads=8]          bf16 — update gate input. beta = sigmoid(b) controls
-                 how much of the new value to write vs retaining old value at key k.
-        scale:   scalar f32 — output scale factor, default 1/sqrt(K) = 1/sqrt(128).
-
-    Returns:
-        output:    [B, 1, num_v_heads=8, V=128] bf16 — attention output (scale * q @ state_new).
-        new_state: [B, num_v_heads=8, V=128, K=128] f32 — updated recurrent state (k-last layout).
+        q:         [B, 1, num_q_heads=4, K=128]     bf16 — query, used to read from state.
+        k:         [B, 1, num_k_heads=4, K=128]     bf16 — key, the "address" to erase/write in state.
+        v:         [B, 1, num_v_heads=8, V=128]     bf16 — value, new information to write into state.
+        state:     [B, num_v_heads=8, V=128, K=128]  f32 — recurrent state (k-last layout [H,V,K]).
+                   Optional; zeros if None.
+        A_log:     [num_v_heads=8]                    f32 — learnable log-space base decay rate per head.
+                   Controls how fast each head forgets: g = exp(-exp(A_log) * softplus(a + dt_bias)).
+        a:         [B, 1, num_v_heads=8]             bf16 — input-dependent decay (per token, per head).
+        dt_bias:   [num_v_heads=8]                    f32 — learnable decay bias, added to a before softplus.
+        b:         [B, 1, num_v_heads=8]             bf16 — update gate input. beta = sigmoid(b) controls
+                   how much of the new value to write vs retaining old value at key k.
+        scale:     scalar f32 — output scale factor, default 1/sqrt(K) = 1/sqrt(128).
+        output:    [B, 1, num_v_heads=8, V=128]     bf16 — DPS output buffer.
+        new_state: [B, num_v_heads=8, V=128, K=128]  f32 — DPS state output buffer.
 
     Recurrence (per head, working in [K,V] layout):
         g     = exp(-exp(A_log) * softplus(a + dt_bias))   # global decay ∈ (0,1)
@@ -191,9 +176,6 @@ def _reference_decode(q, k, v, state, A_log, a, dt_bias, b, scale):
     q_exp = q_f32.repeat_interleave(num_v_heads // num_q_heads, dim=1)
     k_exp = k_f32.repeat_interleave(num_v_heads // num_k_heads, dim=1)
 
-    new_state = torch.zeros_like(state_f32)
-    output = torch.zeros(B, num_heads, V, dtype=torch.float32, device=device)
-
     # fmt: off
     for b_idx in range(B):
         for h_idx in range(num_heads):
@@ -213,12 +195,9 @@ def _reference_decode(q, k, v, state, A_log, a, dt_bias, b, scale):
             state_update = k_h.unsqueeze(1) @ new_v.unsqueeze(0)  # [K,1] @ [1,V] -> [K, V] — outer product: write new
             h_state = old_state - state_remove + state_update     # [K, V] — updated state
 
-            output[b_idx, h_idx] = scale * (q_h @ h_state)  # [K] @ [K, V] -> [V] — read from state
+            output[b_idx, 0, h_idx] = (scale * (q_h @ h_state)).to(torch.bfloat16)  # [V] into [B,1,H,V]
             new_state[b_idx, h_idx] = h_state.transpose(-1, -2)  # [K,V] -> [V,K] back to storage layout
     # fmt: on
-
-    output = output.unsqueeze(1).to(torch.bfloat16)
-    return output, new_state
 
 
 # ---------------------------------------------------------------------------
