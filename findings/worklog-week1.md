@@ -7,6 +7,7 @@ Proton intra-kernel profiling and kernel cleanup.
 - Warp-level timeline trace (Perfetto) shows the per-CTA breakdown:
   ![GDN decode warp-level timeline](../images/gdn-profiler-warp-level-runtimes.png)
 - Refactoring the FLA kernel yielded massive speedups. In particular moving the decay computation inside the kernel, and remove the state transposition + contiguous() calls.
+- worked time: 5h25
 
 # Worklog 2026-02-18
 
