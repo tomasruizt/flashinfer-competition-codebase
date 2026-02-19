@@ -67,7 +67,9 @@ def run_benchmark(solution: Solution, config: BenchmarkConfig = None) -> dict:
             }
             if trace.evaluation.performance:
                 entry["latency_ms"] = trace.evaluation.performance.latency_ms
-                entry["reference_latency_ms"] = trace.evaluation.performance.reference_latency_ms
+                entry["reference_latency_ms"] = (
+                    trace.evaluation.performance.reference_latency_ms
+                )
                 entry["speedup_factor"] = trace.evaluation.performance.speedup_factor
             if trace.evaluation.correctness:
                 entry["max_abs_error"] = trace.evaluation.correctness.max_absolute_error

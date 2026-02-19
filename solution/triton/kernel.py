@@ -3,6 +3,7 @@ import torch
 import torch.nn.functional as F
 import triton
 import triton.language as tl
+import triton.profiler.language as pl
 
 
 @torch.no_grad()
@@ -223,6 +224,7 @@ def fused_recurrent_gated_delta_rule_fwd_kernel(
     STORE_FINAL_STATE: tl.constexpr,
     IS_VARLEN: tl.constexpr,
 ):
+    pl.enter_scope("gdn_recurrent")
     i_v, i_nh = tl.program_id(0), tl.program_id(1)
     i_n, i_hv = i_nh // HV, i_nh % HV
     i_h = i_hv // (HV // H)
@@ -311,3 +313,4 @@ def fused_recurrent_gated_delta_rule_fwd_kernel(
     if STORE_FINAL_STATE:
         p_ht = ht + i_nh * K * V + o_k[:, None] * V + o_v[None, :]
         tl.store(p_ht, b_h.to(p_ht.dtype.element_ty), mask=mask_h)
+    pl.exit_scope("gdn_recurrent")
