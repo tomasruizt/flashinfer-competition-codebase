@@ -132,14 +132,11 @@ def kernel_fla_recurrent(
     beta = torch.sigmoid(b.float())  # [B, 1, 8]
 
     # Transpose state from k-last [B, H, V, K] to k-first [B, H, K, V] for FLA
-    if state is not None:
-        initial_state = state.float().transpose(-1, -2).contiguous()  # [B, 8, K, V]
-    else:
-        initial_state = None
+    initial_state = state.float().transpose(-1, -2).contiguous()  # [B, 8, K, V]
 
     N = B
-    BK = triton.next_power_of_2(K)
-    BV = min(8, triton.next_power_of_2(V))  # gv is None
+    BK = 128
+    BV = 32  # autotune winner on RTX 3090 (was 8 in original FLA)
     NV = triton.cdiv(V, BV)
 
     # Kernel writes ht in k-first [B, HV, K, V] layout, but DPS new_state is
@@ -155,7 +152,7 @@ def kernel_fla_recurrent(
         beta=beta,
         o=output,
         h0=initial_state,
-        USE_INITIAL_STATE=initial_state is not None,
+        USE_INITIAL_STATE=True,
         ht=ht_kfirst,
         scale=scale,
         B=B,
@@ -166,7 +163,7 @@ def kernel_fla_recurrent(
         BK=BK,
         BV=BV,
         PROFILE=bool(os.environ.get("PROTON_PROFILE")),
-        num_warps=1,
+        num_warps=2,
         num_stages=3,
     )
 
