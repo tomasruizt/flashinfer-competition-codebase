@@ -28,7 +28,7 @@ def get_trace_set_path() -> str:
     return path
 
 
-def run_benchmark(solution: Solution, config: BenchmarkConfig = None) -> dict:
+def run_benchmark(solution: Solution, config: BenchmarkConfig = None, num_workloads: int = 0) -> dict:
     """Run benchmark locally and return results."""
     if config is None:
         config = BenchmarkConfig(warmup_runs=3, iterations=100, num_trials=5)
@@ -44,6 +44,9 @@ def run_benchmark(solution: Solution, config: BenchmarkConfig = None) -> dict:
 
     if not workloads:
         raise ValueError(f"No workloads found for definition '{solution.definition}'")
+
+    if num_workloads > 0:
+        workloads = workloads[:num_workloads]
 
     bench_trace_set = TraceSet(
         root=trace_set.root,
@@ -117,7 +120,7 @@ def main():
     print(f"Loaded: {solution.name} ({solution.definition})")
 
     print("\nRunning benchmark...")
-    results = run_benchmark(solution)
+    results = run_benchmark(solution, num_workloads=args.num_workloads)
 
     if not results:
         print("No results returned!")

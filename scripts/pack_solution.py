@@ -39,6 +39,12 @@ def parse_args():
         default=None,
         help="Output path for solution.json (default: ./solution.json)"
     )
+    parser.add_argument(
+        "-n", "--num-workloads",
+        type=int,
+        default=0,
+        help="Number of workloads to run (default: 0 = all)",
+    )
     return parser.parse_args()
 
 
