@@ -181,6 +181,27 @@ python scripts/run_local.py --algo=pt-reference      # compiled PyTorch referenc
 - The benchmark framework's `COMPILE_ERROR` status is opaque — it covers import errors, torch.compile failures, and any other pre-execution errors, with no error message surfaced in the output
 - To debug Modal errors: check that all imports in `kernel.py` are available in the Modal image (`run_modal.py` `.pip_install(...)`)
 
+## Proton Intra-Kernel Profiling
+- Triton 3.5.1 includes **Proton**, an intra-kernel profiler: `import triton.profiler as proton`
+- DSL: `import triton.profiler.language as pl` — insert `pl.scope()` / `pl.enter_scope()` / `pl.exit_scope()` into `@triton.jit` kernels to annotate regions
+- Gluon kernels (`@gluon.jit`) also support the same `pl.scope()` annotations
+- Must call `pl.enable_semantic("triton")` before launching profiled Triton kernels
+- Two profiling modes:
+  - **Timeline trace**: `proton.start("name", data="trace", backend="instrumentation", mode=mode)` → outputs `.chrome_trace` file (view in `chrome://tracing`)
+  - **Op measurement**: `proton.start("name", backend="instrumentation", mode=mode)` → outputs `.hatchet` file (view with `proton-viewer -m normalized_cycles`)
+- Warp sampling: `proton.mode.Default(sampling_strategy="selective", sampling_options="0,2")` to profile only specific warps
+- Example: `timeline/example_dsl.py` (vector add + Gluon matmul; matmul requires Hopper GPU)
+- **Gluon** (`triton.experimental.gluon`) is also available in triton 3.5.1 — low-level Triton extension for TMA, warpgroup MMA, mbarrier, etc. (Hopper-only features)
+
+## Running Scripts Locally
+- **pyenv intercepts `python3`** on this machine — always use the full conda path to run scripts:
+  ```bash
+  /home/tomasruiz/miniforge3/envs/fi-bench/bin/python script.py
+  ```
+- `conda run -n fi-bench` does NOT work correctly (pyenv shim takes priority, runs Python 3.11 with triton 2.1.0 instead of Python 3.12 with triton 3.5.1)
+- The pyenv Python has an old torch 2.1.2 + triton 2.1.0 — missing `triton.profiler`, `triton.experimental.gluon`, etc.
+- Local GPU: RTX 3090 (Ampere SM86) — cannot run Hopper-only features (TMA, warpgroup MMA, Gluon matmul examples)
+
 ## flashinfer-bench Internals
 - Source: `/home/tomasruiz/miniforge3/envs/fi-bench/lib/python3.12/site-packages/flashinfer_bench/`
 - Builder loads solution, imports as Python module, gets entry_point via `getattr()`

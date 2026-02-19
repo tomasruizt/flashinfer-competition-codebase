@@ -1,3 +1,6 @@
+# Worklog 2026-02-19
+- I want to use the feature of the proton profiler that gives me warp-level timelines, to understand where each warp spends most of its time (never used this before, but expect it to be insightful). It looks nice for vector addition!
+
 # Worklog 2026-02-18
 
 Project setup and first baselines for the GDN decode kernel.
