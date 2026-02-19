@@ -12,10 +12,8 @@ modal-fla:
 modal-pt:
 	ALGO=pt-reference modal run scripts/run_modal.py
 
-proton-trace:
+proton-fla:
 	python scripts/profile_proton.py
-
-proton-cycles:
 	python scripts/profile_proton.py --op-measure
 	proton-viewer -m normalized_cycles profiles/gdn_decode.hatchet
 

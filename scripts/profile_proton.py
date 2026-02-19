@@ -11,6 +11,7 @@ View results:
 """
 
 import argparse
+import os
 import sys
 from pathlib import Path
 
@@ -21,8 +22,9 @@ import triton.profiler.language as pl
 from flashinfer_bench.bench.utils import gen_inputs, load_safetensors
 from flashinfer_bench.data import TraceSet
 
-# Disable torch.compile so Triton kernels run directly (proton scopes need this —
-# torch.compile serializes kernel source and loses the `pl` import)
+# Enable proton scopes in the Triton kernel and disable torch.compile
+# (torch.compile serializes kernel source and loses the `pl` import)
+os.environ["PROTON_PROFILE"] = "1"
 torch._dynamo.config.disable = True
 
 PROJECT_ROOT = Path(__file__).parent.parent
