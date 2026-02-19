@@ -2,9 +2,121 @@ import math
 import torch
 import torch.nn.functional as F
 import triton
-from fla.ops.gated_delta_rule.fused_recurrent import (
-    fused_recurrent_gated_delta_rule_fwd_kernel,
-)
+import triton.language as tl
+
+
+# ---------------------------------------------------------------------------
+# DPS entry points (competition interface)
+# ---------------------------------------------------------------------------
+
+
+@torch.no_grad()
+@torch.compile(fullgraph=True)
+def kernel_fla_recurrent(
+    q, k, v, state, A_log, a, dt_bias, b, scale, output, new_state
+):
+    """DPS entry point: FLA fused recurrent Triton kernel."""
+    out, ns = _fla_decode(q, k, v, state, A_log, a, dt_bias, b, scale)
+    output.copy_(out)
+    new_state.copy_(ns)
+
+
+@torch.no_grad()
+@torch.compile(fullgraph=True)
+def kernel_pt_reference(q, k, v, state, A_log, a, dt_bias, b, scale, output, new_state):
+    """DPS entry point: torch.compile'd PyTorch reference."""
+    out, ns = _reference_decode(q, k, v, state, A_log, a, dt_bias, b, scale)
+    output.copy_(out)
+    new_state.copy_(ns)
+
+
+# ---------------------------------------------------------------------------
+# FLA fused recurrent wrapper (optimized Triton kernel)
+# ---------------------------------------------------------------------------
+
+
+def _fla_decode(q, k, v, state, A_log, a, dt_bias, b, scale):
+    """
+    Wrapper adapting our competition interface to FLA's fused_recurrent_gated_delta_rule_fwd_kernel.
+    Calls the Triton kernel directly instead of fused_recurrent_gated_delta_rule_fwd().
+
+    Interface differences:
+        Ours                              FLA kernel
+        ----                              ----------
+        A_log, a, dt_bias → g (decay)     g: [B, T, HV] log-space decay (pre-computed)
+        b → beta (update gate)            beta: [B, T, HV] already sigmoid'd
+        state: [B, H, V, K] (k-last)     h0: [B, H, K, V] (k-first)
+        q: [B, T, num_q_heads=4, K]      q: [B, T, H=4, K]  (same)
+        k: [B, T, num_k_heads=4, K]      k: [B, T, H=4, K]  (same)
+        v: [B, T, num_v_heads=8, V]      v: [B, T, HV=8, V] (same)
+
+    Returns:
+        output:    [B, 1, 8, 128] bf16
+        new_state: [B, 8, 128, 128] f32 (k-last layout)
+    """
+    K = q.shape[-1]
+    B, T, H, _ = k.shape
+    V = v.shape[-1]
+    HV = v.shape[2]
+
+    if scale is None or scale == 0.0:
+        scale = 1.0 / math.sqrt(K)
+
+    # Compute log-space decay: g = log(decay) = -exp(A_log) * softplus(a + dt_bias)
+    # FLA kernel does: h *= exp(g), so g must be log of the decay factor
+    g = -torch.exp(A_log.float()) * F.softplus(a.float() + dt_bias.float())  # [B, 1, 8]
+
+    # Compute beta = sigmoid(b)
+    beta = torch.sigmoid(b.float())  # [B, 1, 8]
+
+    # Transpose state from k-last [B, H, V, K] to k-first [B, H, K, V] for FLA
+    if state is not None:
+        initial_state = state.float().transpose(-1, -2).contiguous()  # [B, 8, K, V]
+    else:
+        initial_state = None
+
+    # Same allocation and grid logic as fused_recurrent_gated_delta_rule_fwd()
+    N = B
+    BK = triton.next_power_of_2(K)
+    BV = min(8, triton.next_power_of_2(V))  # gv is None
+    NV = triton.cdiv(V, BV)
+
+    o = torch.empty_like(v)
+    final_state = q.new_empty(N, HV, K, V, dtype=torch.float32)
+
+    grid = (NV, N * HV)
+    fused_recurrent_gated_delta_rule_fwd_kernel[grid](
+        q=q,
+        k=k,
+        v=v,
+        g=g,
+        gk=None,
+        gv=None,
+        beta=beta,
+        o=o,
+        h0=initial_state,
+        ht=final_state,
+        cu_seqlens=None,
+        scale=scale,
+        T=T,
+        B=B,
+        H=H,
+        HV=HV,
+        K=K,
+        V=V,
+        BK=BK,
+        BV=BV,
+        IS_BETA_HEADWISE=True,
+        USE_QK_L2NORM_IN_KERNEL=False,
+        num_warps=1,
+        num_stages=3,
+    )
+
+    # o: [B, 1, 8, 128] — already correct shape and dtype
+    # final_state: [B, 8, K, V] → transpose back to k-last [B, 8, V, K]
+    new_state = final_state.transpose(-1, -2).contiguous()
+
+    return o.to(torch.bfloat16), new_state
 
 
 # ---------------------------------------------------------------------------
@@ -110,109 +222,133 @@ def _reference_decode(q, k, v, state, A_log, a, dt_bias, b, scale):
 
 
 # ---------------------------------------------------------------------------
-# FLA fused recurrent wrapper (optimized Triton kernel)
+# Triton kernel: fused recurrent GDN forward
+# Inlined from fla.ops.gated_delta_rule.fused_recurrent (flash-linear-attention)
+# Copyright (c) 2023-2025, Songlin Yang, Yu Zhang
 # ---------------------------------------------------------------------------
 
 
-def _fla_decode(q, k, v, state, A_log, a, dt_bias, b, scale):
-    """
-    Wrapper adapting our competition interface to FLA's fused_recurrent_gated_delta_rule_fwd_kernel.
-    Calls the Triton kernel directly instead of fused_recurrent_gated_delta_rule_fwd().
-
-    Interface differences:
-        Ours                              FLA kernel
-        ----                              ----------
-        A_log, a, dt_bias → g (decay)     g: [B, T, HV] log-space decay (pre-computed)
-        b → beta (update gate)            beta: [B, T, HV] already sigmoid'd
-        state: [B, H, V, K] (k-last)     h0: [B, H, K, V] (k-first)
-        q: [B, T, num_q_heads=4, K]      q: [B, T, H=4, K]  (same)
-        k: [B, T, num_k_heads=4, K]      k: [B, T, H=4, K]  (same)
-        v: [B, T, num_v_heads=8, V]      v: [B, T, HV=8, V] (same)
-
-    Returns:
-        output:    [B, 1, 8, 128] bf16
-        new_state: [B, 8, 128, 128] f32 (k-last layout)
-    """
-    K = q.shape[-1]
-    B, T, H, _ = k.shape
-    V = v.shape[-1]
-    HV = v.shape[2]
-
-    if scale is None or scale == 0.0:
-        scale = 1.0 / math.sqrt(K)
-
-    # Compute log-space decay: g = log(decay) = -exp(A_log) * softplus(a + dt_bias)
-    # FLA kernel does: h *= exp(g), so g must be log of the decay factor
-    g = -torch.exp(A_log.float()) * F.softplus(a.float() + dt_bias.float())  # [B, 1, 8]
-
-    # Compute beta = sigmoid(b)
-    beta = torch.sigmoid(b.float())  # [B, 1, 8]
-
-    # Transpose state from k-last [B, H, V, K] to k-first [B, H, K, V] for FLA
-    if state is not None:
-        initial_state = state.float().transpose(-1, -2).contiguous()  # [B, 8, K, V]
-    else:
-        initial_state = None
-
-    # Same allocation and grid logic as fused_recurrent_gated_delta_rule_fwd()
-    N = B
-    BK = triton.next_power_of_2(K)
-    BV = min(8, triton.next_power_of_2(V))  # gv is None
-    NV = triton.cdiv(V, BV)
-
-    o = torch.empty_like(v)
-    final_state = q.new_empty(N, HV, K, V, dtype=torch.float32)
-
-    grid = (NV, N * HV)
-    fused_recurrent_gated_delta_rule_fwd_kernel[grid](
-        q=q,
-        k=k,
-        v=v,
-        g=g,
-        gk=None,
-        gv=None,
-        beta=beta,
-        o=o,
-        h0=initial_state,
-        ht=final_state,
-        cu_seqlens=None,
-        scale=scale,
-        T=T,
-        B=B,
-        H=H,
-        HV=HV,
-        K=K,
-        V=V,
-        BK=BK,
-        BV=BV,
-        IS_BETA_HEADWISE=True,
-        USE_QK_L2NORM_IN_KERNEL=False,
-        num_warps=1,
-        num_stages=3,
-    )
-
-    # o: [B, 1, 8, 128] — already correct shape and dtype
-    # final_state: [B, 8, K, V] → transpose back to k-last [B, 8, V, K]
-    new_state = final_state.transpose(-1, -2).contiguous()
-
-    return o.to(torch.bfloat16), new_state
-
-
-@torch.no_grad()
-@torch.compile(fullgraph=True)
-def kernel_fla_recurrent(
-    q, k, v, state, A_log, a, dt_bias, b, scale, output, new_state
+@triton.heuristics({
+    'USE_G': lambda args: args['g'] is not None,
+    'USE_GK': lambda args: args['gk'] is not None,
+    'USE_GV': lambda args: args['gv'] is not None,
+    'USE_INITIAL_STATE': lambda args: args['h0'] is not None,
+    'STORE_FINAL_STATE': lambda args: args['ht'] is not None,
+    'IS_VARLEN': lambda args: args['cu_seqlens'] is not None,
+})
+@triton.jit(do_not_specialize=['T'])
+def fused_recurrent_gated_delta_rule_fwd_kernel(
+    q,
+    k,
+    v,
+    g,
+    gk,
+    gv,
+    beta,
+    o,
+    h0,
+    ht,
+    cu_seqlens,
+    scale,
+    T,
+    B: tl.constexpr,
+    H: tl.constexpr,
+    HV: tl.constexpr,
+    K: tl.constexpr,
+    V: tl.constexpr,
+    BK: tl.constexpr,
+    BV: tl.constexpr,
+    USE_G: tl.constexpr,
+    USE_GK: tl.constexpr,
+    USE_GV: tl.constexpr,
+    USE_QK_L2NORM_IN_KERNEL: tl.constexpr,
+    IS_BETA_HEADWISE: tl.constexpr,
+    USE_INITIAL_STATE: tl.constexpr,
+    STORE_FINAL_STATE: tl.constexpr,
+    IS_VARLEN: tl.constexpr,
 ):
-    """DPS entry point: FLA fused recurrent Triton kernel."""
-    out, ns = _fla_decode(q, k, v, state, A_log, a, dt_bias, b, scale)
-    output.copy_(out)
-    new_state.copy_(ns)
+    i_v, i_nh = tl.program_id(0), tl.program_id(1)
+    i_n, i_hv = i_nh // HV, i_nh % HV
+    i_h = i_hv // (HV // H)
 
+    if IS_VARLEN:
+        bos, eos = tl.load(cu_seqlens + i_n).to(tl.int64), tl.load(cu_seqlens + i_n + 1).to(tl.int64)
+        T = eos - bos
+    else:
+        bos, eos = i_n * T, i_n * T + T
+    o_k = tl.arange(0, BK)
+    o_v = i_v * BV + tl.arange(0, BV)
 
-@torch.no_grad()
-@torch.compile(fullgraph=True)
-def kernel_pt_reference(q, k, v, state, A_log, a, dt_bias, b, scale, output, new_state):
-    """DPS entry point: torch.compile'd PyTorch reference."""
-    out, ns = _reference_decode(q, k, v, state, A_log, a, dt_bias, b, scale)
-    output.copy_(out)
-    new_state.copy_(ns)
+    p_q = q + (bos * H + i_h) * K + o_k
+    p_k = k + (bos * H + i_h) * K + o_k
+    p_v = v + (bos * HV + i_hv) * V + o_v
+    if USE_G:
+        p_g = g + bos * HV + i_hv
+    if USE_GK:
+        p_gk = gk + (bos * HV + i_hv) * K + o_k
+    if USE_GV:
+        p_gv = gv + (bos * HV + i_hv) * V + o_v
+    if IS_BETA_HEADWISE:
+        p_beta = beta + bos * HV + i_hv
+    else:
+        p_beta = beta + (bos * HV + i_hv) * V + o_v
+
+    p_o = o + (bos * HV + i_hv) * V + o_v
+
+    mask_k = o_k < K
+    mask_v = o_v < V
+    mask_h = mask_k[:, None] & mask_v[None, :]
+
+    b_h = tl.zeros([BK, BV], dtype=tl.float32)
+    if USE_INITIAL_STATE:
+        p_h0 = h0 + i_nh * K*V + o_k[:, None] * V + o_v[None, :]
+        b_h += tl.load(p_h0, mask=mask_h, other=0).to(tl.float32)
+
+    for _ in range(0, T):
+        b_q = tl.load(p_q, mask=mask_k, other=0).to(tl.float32)
+        b_k = tl.load(p_k, mask=mask_k, other=0).to(tl.float32)
+        b_v = tl.load(p_v, mask=mask_v, other=0).to(tl.float32)
+        if USE_QK_L2NORM_IN_KERNEL:
+            b_q = b_q / tl.sqrt(tl.sum(b_q * b_q) + 1e-6)
+            b_k = b_k / tl.sqrt(tl.sum(b_k * b_k) + 1e-6)
+        b_q = b_q * scale
+        if IS_BETA_HEADWISE:
+            b_beta = tl.load(p_beta).to(tl.float32)
+        else:
+            b_beta = tl.load(p_beta, mask=mask_v, other=0).to(tl.float32)
+
+        # [BK, BV]
+        if USE_G:
+            b_g = tl.load(p_g).to(tl.float32)
+            b_h *= tl.exp(b_g)
+
+        if USE_GK:
+            b_gk = tl.load(p_gk).to(tl.float32)
+            b_h *= tl.exp(b_gk[:, None])
+
+        if USE_GV:
+            b_gv = tl.load(p_gv).to(tl.float32)
+            b_h *= tl.exp(b_gv[None, :])
+
+        b_v = b_beta * (b_v - tl.sum(b_h * b_k[:, None], 0))
+        b_h += b_k[:, None] * b_v
+
+        # [BV]
+        b_o = tl.sum(b_h * b_q[:, None], 0)
+        tl.store(p_o, b_o.to(p_o.dtype.element_ty), mask=mask_v)
+
+        p_q += H*K
+        p_k += H*K
+        p_v += HV*V
+        if USE_G:
+            p_g += HV
+        if USE_GK:
+            p_gk += HV*K
+        if USE_GV:
+            p_gv += HV*V
+        p_beta += HV * (1 if IS_BETA_HEADWISE else V)
+        p_o += HV*V
+
+    if STORE_FINAL_STATE:
+        p_ht = ht + i_nh * K*V + o_k[:, None] * V + o_v[None, :]
+        tl.store(p_ht, b_h.to(p_ht.dtype.element_ty), mask=mask_h)
