@@ -1,5 +1,24 @@
 # Worklog 2026-02-19
-- I want to use the feature of the proton profiler that gives me warp-level timelines, to understand where each warp spends most of its time (never used this before, but expect it to be insightful). It looks nice for vector addition!
+
+Proton intra-kernel profiling and kernel cleanup.
+
+- Set up Proton profiling for the FLA Triton kernel (`scripts/profile_proton.py`).
+  - `make proton-fla` generates both timeline trace and op-measurement hatchet file.
+  - Key gotcha: `torch.compile` serializes Triton kernel source into a new scope,
+    losing any `pl` (profiler language) imports. Fix: disable dynamo for profiling,
+    use `PROTON_PROFILE` env var + `tl.constexpr` guard so scopes are no-ops during benchmarks.
+- Added Proton scope annotations to the kernel: `load_initial_state`, `load_qkv`,
+  `state_update`, `store_output`, `store_final_state` — gated behind `if PROFILE:`.
+- Stripped dead code from the inlined FLA kernel for our decode-only use case.
+- Warp-level timeline trace (Perfetto) shows the per-CTA breakdown clearly:
+
+  ![GDN decode warp-level timeline](../images/gdn-profiler-warp-level-runtimes.png)
+
+  - `load_initial_state` dominates (~40% of kernel time) — loading the 128x128 f32 state tile from GMEM.
+  - `load_qkv` is the second largest — loading q, k, v vectors.
+  - `state_update` (delta rule matvecs + outer product) and `store_final_state` are roughly equal.
+  - `store_output` is negligible (just a [BV=8] vector).
+  - Confirms the kernel is **memory-bound**: loads/stores >> compute.
 
 # Worklog 2026-02-18
 

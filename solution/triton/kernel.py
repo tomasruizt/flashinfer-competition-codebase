@@ -251,12 +251,16 @@ def fused_recurrent_gated_delta_rule_fwd_kernel(
     b_g = tl.load(p_g).to(tl.float32)  # scalar — log decay
     b_h *= tl.exp(b_g)  # [BK, BV] *= scalar
 
+    if PROFILE:
+        pl.enter_scope("state_update")
     # Delta rule: retrieve old value, blend with new, update state
     # k@S:   sum([BK, BV] * [BK, 1], dim=0) -> [BV]  (matvec: value stored at key k)
     # blend: scalar * ([BV] - [BV]) -> [BV]           (beta-weighted delta)
     b_v = b_beta * (b_v - tl.sum(b_h * b_k[:, None], 0))
     # outer product: [BK, 1] * [BV] -> [BK, BV]      (state update)
     b_h += b_k[:, None] * b_v
+    if PROFILE:
+        pl.exit_scope("state_update")
 
     # q@S: sum([BK, BV] * [BK, 1], dim=0) -> [BV]    (matvec: read output from state)
     b_o = tl.sum(b_h * b_q[:, None], 0)
