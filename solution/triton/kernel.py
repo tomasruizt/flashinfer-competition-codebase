@@ -151,13 +151,10 @@ def kernel_fla_recurrent(
         k=k,
         v=v,
         g=g,
-        gk=None,
-        gv=None,
         beta=beta,
         o=output,
         h0=initial_state,
         ht=ht_kfirst,
-        cu_seqlens=None,
         scale=scale,
         T=T,
         B=B,
@@ -167,8 +164,6 @@ def kernel_fla_recurrent(
         V=V,
         BK=BK,
         BV=BV,
-        IS_BETA_HEADWISE=True,
-        USE_QK_L2NORM_IN_KERNEL=False,
         PROFILE=bool(os.environ.get("PROTON_PROFILE")),
         num_warps=1,
         num_stages=3,
@@ -186,14 +181,7 @@ def kernel_fla_recurrent(
 
 
 @triton.heuristics(
-    {
-        "USE_G": lambda args: args["g"] is not None,
-        "USE_GK": lambda args: args["gk"] is not None,
-        "USE_GV": lambda args: args["gv"] is not None,
-        "USE_INITIAL_STATE": lambda args: args["h0"] is not None,
-        "STORE_FINAL_STATE": lambda args: args["ht"] is not None,
-        "IS_VARLEN": lambda args: args["cu_seqlens"] is not None,
-    }
+    {"USE_INITIAL_STATE": lambda args: args["h0"] is not None}
 )
 @triton.jit(do_not_specialize=["T"])
 def fused_recurrent_gated_delta_rule_fwd_kernel(
@@ -201,13 +189,10 @@ def fused_recurrent_gated_delta_rule_fwd_kernel(
     k,
     v,
     g,
-    gk,
-    gv,
     beta,
     o,
     h0,
     ht,
-    cu_seqlens,
     scale,
     T,
     B: tl.constexpr,
@@ -217,14 +202,7 @@ def fused_recurrent_gated_delta_rule_fwd_kernel(
     V: tl.constexpr,
     BK: tl.constexpr,
     BV: tl.constexpr,
-    USE_G: tl.constexpr,
-    USE_GK: tl.constexpr,
-    USE_GV: tl.constexpr,
-    USE_QK_L2NORM_IN_KERNEL: tl.constexpr,
-    IS_BETA_HEADWISE: tl.constexpr,
     USE_INITIAL_STATE: tl.constexpr,
-    STORE_FINAL_STATE: tl.constexpr,
-    IS_VARLEN: tl.constexpr,
     PROFILE: tl.constexpr = False,
 ):
     # Grid: (NV=V/BV, B*HV) — each program handles a [BK, BV] tile of one head's state
@@ -235,14 +213,7 @@ def fused_recurrent_gated_delta_rule_fwd_kernel(
     i_n, i_hv = i_nh // HV, i_nh % HV  # batch index, v-head index
     i_h = i_hv // (HV // H)  # q/k-head index (GVA: 2 v-heads per qk-head)
 
-    if IS_VARLEN:
-        bos, eos = (
-            tl.load(cu_seqlens + i_n).to(tl.int64),
-            tl.load(cu_seqlens + i_n + 1).to(tl.int64),
-        )
-        T = eos - bos
-    else:
-        bos, eos = i_n * T, i_n * T + T
+    bos, eos = i_n * T, i_n * T + T
     o_k = tl.arange(0, BK)  # [BK] — offsets into K dimension
     o_v = i_v * BV + tl.arange(0, BV)  # [BV] — offsets into V dimension (tile)
 
@@ -250,56 +221,34 @@ def fused_recurrent_gated_delta_rule_fwd_kernel(
     p_q = q + (bos * H + i_h) * K + o_k  # q: [B*T, H, K] flattened
     p_k = k + (bos * H + i_h) * K + o_k  # k: [B*T, H, K] flattened
     p_v = v + (bos * HV + i_hv) * V + o_v  # v: [B*T, HV, V] flattened
-    if USE_G:
-        p_g = g + bos * HV + i_hv  # g: [B*T, HV] — scalar per head per token
-    if USE_GK:
-        p_gk = gk + (bos * HV + i_hv) * K + o_k
-    if USE_GV:
-        p_gv = gv + (bos * HV + i_hv) * V + o_v
-    if IS_BETA_HEADWISE:
-        p_beta = beta + bos * HV + i_hv  # beta: [B*T, HV] — scalar per head per token
-    else:
-        p_beta = beta + (bos * HV + i_hv) * V + o_v
-
+    p_g = g + bos * HV + i_hv  # g: [B*T, HV] — scalar per head per token
+    p_beta = beta + bos * HV + i_hv  # beta: [B*T, HV] — scalar per head per token
     p_o = o + (bos * HV + i_hv) * V + o_v  # o: [B*T, HV, V] flattened
 
-    mask_k = o_k < K  # [BK] — True where BK <= K
-    mask_v = o_v < V  # [BV] — True where tile is in bounds
+    mask_k = o_k < K  # [BK]
+    mask_v = o_v < V  # [BV]
     mask_h = mask_k[:, None] & mask_v[None, :]  # [BK, BV]
 
-    b_h = tl.zeros(
-        [BK, BV], dtype=tl.float32
-    )  # state tile: [BK=128, BV=8] slice of [K, V]
+    b_h = tl.zeros([BK, BV], dtype=tl.float32)  # state tile: [BK=128, BV=8] slice of [K, V]
     if USE_INITIAL_STATE:
         p_h0 = h0 + i_nh * K * V + o_k[:, None] * V + o_v[None, :]
         b_h += tl.load(p_h0, mask=mask_h, other=0).to(tl.float32)  # [BK, BV] from GMEM
 
     for _ in range(0, T):
+        if PROFILE:
+            pl.enter_scope("load_issue")
         b_q = tl.load(p_q, mask=mask_k, other=0).to(tl.float32)  # [BK] — query
         b_k = tl.load(p_k, mask=mask_k, other=0).to(tl.float32)  # [BK] — key
-        b_v = tl.load(p_v, mask=mask_v, other=0).to(tl.float32)  # [BV] — value (tile)
+        b_v = tl.load(p_v, mask=mask_v, other=0).to(tl.float32)  # [BV] — value
+        if PROFILE:
+            pl.exit_scope("load_issue")
 
-        if USE_QK_L2NORM_IN_KERNEL:
-            b_q = b_q / tl.sqrt(tl.sum(b_q * b_q) + 1e-6)  # [BK] — L2 normalize
-            b_k = b_k / tl.sqrt(tl.sum(b_k * b_k) + 1e-6)  # [BK] — L2 normalize
         b_q = b_q * scale  # [BK] — scaled query
-        if IS_BETA_HEADWISE:
-            b_beta = tl.load(p_beta).to(tl.float32)  # scalar — update gate
-        else:
-            b_beta = tl.load(p_beta, mask=mask_v, other=0).to(tl.float32)  # [BV]
+        b_beta = tl.load(p_beta).to(tl.float32)  # scalar — update gate
 
         # Decay state
-        if USE_G:
-            b_g = tl.load(p_g).to(tl.float32)  # scalar — log decay
-            b_h *= tl.exp(b_g)  # [BK, BV] *= scalar
-
-        if USE_GK:
-            b_gk = tl.load(p_gk).to(tl.float32)  # [BK]
-            b_h *= tl.exp(b_gk[:, None])  # [BK, BV] *= [BK, 1]
-
-        if USE_GV:
-            b_gv = tl.load(p_gv).to(tl.float32)  # [BV]
-            b_h *= tl.exp(b_gv[None, :])  # [BK, BV] *= [1, BV]
+        b_g = tl.load(p_g).to(tl.float32)  # scalar — log decay
+        b_h *= tl.exp(b_g)  # [BK, BV] *= scalar
 
         # Delta rule: retrieve old value, blend with new, update state
         # k@S:   sum([BK, BV] * [BK, 1], dim=0) -> [BV]  (matvec: value stored at key k)
@@ -316,17 +265,12 @@ def fused_recurrent_gated_delta_rule_fwd_kernel(
         p_q += H * K
         p_k += H * K
         p_v += HV * V
-        if USE_G:
-            p_g += HV
-        if USE_GK:
-            p_gk += HV * K
-        if USE_GV:
-            p_gv += HV * V
-        p_beta += HV * (1 if IS_BETA_HEADWISE else V)
+        p_g += HV
+        p_beta += HV
         p_o += HV * V
 
-    if STORE_FINAL_STATE:
-        p_ht = ht + i_nh * K * V + o_k[:, None] * V + o_v[None, :]
-        tl.store(p_ht, b_h.to(p_ht.dtype.element_ty), mask=mask_h)  # [BK, BV] -> GMEM
+    # Store final state
+    p_ht = ht + i_nh * K * V + o_k[:, None] * V + o_v[None, :]
+    tl.store(p_ht, b_h.to(p_ht.dtype.element_ty), mask=mask_h)  # [BK, BV] -> GMEM
     if PROFILE:
         pl.exit_scope("gdn_recurrent")
