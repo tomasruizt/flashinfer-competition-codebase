@@ -109,17 +109,54 @@ can be written in **WY compact form**: `I - W * Yᵀ` where W, Y are d×N matric
 - **DeltaNet** (NeurIPS 2024): [arXiv:2406.06484](https://arxiv.org/abs/2406.06484)
 - **Kimi Linear** (extends GDN): [arXiv:2510.26692](https://arxiv.org/abs/2510.26692)
 
+## Decode Kernel Optimizations Applied
+
+### 1. Fused gate computation into Triton kernel
+
+Moved `g = exp(-exp(A_log) * softplus(a + dt_bias))` and `beta = sigmoid(b)` from the Python wrapper into the `@triton.jit` kernel. These are scalar ops per (batch, head) — trivial compute but each was a separate CUDA kernel launch when done in PyTorch. Fusing eliminated 4 kernel launches on tiny [B=1, 1, 8] tensors.
+
+### 2. Eliminated state transposes (k-last layout)
+
+The FLA kernel expected k-first `[K, V]` state layout, but the competition format stores state as k-last `[V, K]`. The wrapper was doing:
+- Input: `state.float().transpose(-1, -2).contiguous()` — 512 KB allocation + copy
+- Output: `new_state.copy_(ht_kfirst.transpose(-1, -2))` — 512 KB strided copy
+
+Fix: changed the kernel's pointer math from `k * V + v` to `v * K + k`. The kernel now reads/writes k-last directly. No temp buffers, no transposes. This was the single biggest win (~2x speedup).
+
+### 3. Removed torch.compile wrapper
+
+With gates fused and transposes eliminated, the wrapper only does shape extraction and the kernel launch — nothing for torch.compile to optimize. Removing it avoids compilation overhead.
+
+## Triton Autotuning Investigation
+
+### Observed slowdown with `@triton.autotune` (RTX 3090)
+
+| Setup | Latency | Delta |
+| ----- | ------- | ----- |
+| Hardcoded config (no decorator) | ~0.050 ms | — |
+| `@triton.autotune` (cached, same config) | ~0.066 ms | +0.016 ms |
+
+The cause of the ~16 µs difference is not conclusively identified. Possible explanations:
+- Python-level dispatch overhead (cache key hashing, dict lookup, kwarg merging) on every call
+- Interaction with the benchmark harness subprocess model
+- Something else — needs further investigation
+
+### The config choice itself doesn't matter (for this kernel)
+
+Tested BV={8, 32} and num_warps={1, 2} without the decorator — all perform identically at ~0.050 ms. The kernel is so small (B=1, 8 heads, no loops) that tile size and warp count don't affect performance on RTX 3090. May differ on B200.
+
+### `@triton.autotune` is incompatible with `torch.compile`
+
+When the Triton kernel launch is inside a `@torch.compile(fullgraph=True)` function, torch.compile captures the kernel call during tracing and handles it internally. The autotuner's `cache` dict stays empty — it never runs. torch.compile just uses whatever config it encounters.
+
 ## Optimization Opportunities / Headroom
 
 1. **Blackwell B200 is new.** FLA kernels are research-grade Triton, not tuned for B200's tensor cores, TMA, or memory hierarchy. Known Blackwell bugs exist.
 2. **Triton has a ceiling.** Hand-tuned CUDA C++ (especially with TMA, warp specialization) should have headroom over Triton for both kernels.
-3. **Competition baseline is unknown.** FlashInfer baseline may be a naive PyTorch implementation (easy to beat) or something more optimized. Need to download dataset and measure.
-4. **Decode kernel:** Memory access pattern optimization (state read/write coalescing, batching across heads).
-5. **Prefill kernel:** Chunk size tuning, shared memory management, pipeline stages for B200.
+3. **Prefill kernel:** Not yet started. Chunk size tuning, shared memory management, pipeline stages for B200.
 
 ## Open Questions
 
-- What exactly is the FlashInfer baseline? (Need to download dataset and run)
-- What are the exact kernel signatures / tensor shapes for the competition? (In the dataset definitions)
-- What kernel names does the competition use? (e.g., `gdn_decode_qk4_v8_d128_k_last`)
-- How much headroom exists on B200 vs current FLA Triton kernels?
+- How much headroom exists on B200 vs current Triton decode kernel?
+- Can we batch across heads to improve occupancy for the decode kernel?
+- What is the optimal chunk size for prefill on B200?

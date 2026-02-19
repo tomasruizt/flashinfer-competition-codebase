@@ -99,8 +99,8 @@ From Qwen3-Next-80B with TP=4:
 
 ### State layout: "k-last"
 - Storage: `[B, H=8, V=128, K=128]` — "k-last" means K dimension is last
-- Computation: transposed to `[K, V]` so that `k @ S` and `q @ S` are natural matvecs
-- Transposed back to `[V, K]` before writing to output
+- Kernel works directly in k-last layout — no transposes needed
+- Pointer math for element (k, v): `offset = v * K + k` (K is contiguous/inner dim)
 
 ## GDN Track: Two Kernels
 Each kernel is a separate definition, needs a separate `config.toml` definition entry:
@@ -156,10 +156,8 @@ python scripts/run_local.py --algo=pt-reference      # compiled PyTorch referenc
 - `pack_solution()` also accepts `name=` to set the solution name per algo
 
 ### torch.compile
-- Both entry points use `@torch.compile(fullgraph=True)`
-- FLA Triton kernel works with `fullgraph=True` — torch.compile traces through `@triton.jit` kernels natively
-- PyTorch reference also works with `fullgraph=True` — compiler unrolls the Python loops (B=1, num_heads=8 are small constants)
-- Main benefit for FLA wrapper: fuses gate computation (`exp`, `softplus`, `sigmoid`) and state transposes, eliminating intermediate allocations
+- `kernel_pt_reference` uses `@torch.compile(fullgraph=True)` — compiler unrolls Python loops (B=1, num_heads=8)
+- `kernel_fla_recurrent` does NOT use torch.compile — gate math is fused into the Triton kernel and state transposes are eliminated, so there's nothing left to compile
 
 ### Trace file structure
 - Trace output path: `{FIB_DATASET_PATH}/traces/{op_type}/{definition_name}.jsonl`
@@ -167,12 +165,17 @@ python scripts/run_local.py --algo=pt-reference      # compiled PyTorch referenc
 - Each JSON line has a `"solution"` field to distinguish between algos
 - To separate algos in the trace file, use different solution names via `pack_solution(name=...)`
 
-### Performance baselines (RTX 3090)
-| Algo                     | Latency  | Speedup vs reference |
-| ------------------------ | -------- | -------------------- |
-| pt-reference (eager)     | ~1.4 ms  | ~1.0x                |
-| pt-reference (compiled)  | ~0.73 ms | ~1.8x                |
-| fla-recurrent (compiled) | ~0.14 ms | ~9.5x                |
+### Performance (RTX 3090)
+| Algo                     | Latency   | Speedup vs reference |
+| ------------------------ | --------- | -------------------- |
+| pt-reference (eager)     | ~1.4 ms   | ~1.0x                |
+| pt-reference (compiled)  | ~0.73 ms  | ~1.8x                |
+| fla-recurrent            | ~0.05 ms  | ~29x                 |
+
+### Performance (B200 via Modal)
+| Algo                     | Latency   | Speedup vs reference |
+| ------------------------ | --------- | -------------------- |
+| fla-recurrent            | ~0.037 ms | ~32x                 |
 
 ## Modal Deployment Notes
 - The Modal image must install ALL Python packages that `kernel.py` imports at the top level
@@ -200,13 +203,30 @@ python scripts/run_local.py --algo=pt-reference      # compiled PyTorch referenc
 - **Scope toggling**: `PROTON_PROFILE` env var read at call time in the wrapper, passed as `PROFILE: tl.constexpr` to the kernel. When `False`, Triton eliminates dead branches at AST level → no `pl` references → torch.compile works. When `True` (profiling), dynamo is disabled → `pl` resolves normally.
 - Kernel scopes: `load_initial_state`, `load_qkv`, `state_update`, `store_output`, `store_final_state`
 
-### Decode kernel profiling results (RTX 3090)
+### Decode kernel profiling results (RTX 3090, BV=8)
 - **Memory-bound**: loads/stores dominate, compute is minor
 - `load_initial_state` ~40% — loading [BK=128, BV=8] f32 state tile from GMEM (16 tiles per head)
 - `load_qkv` ~25% — loading q [BK], k [BK], v [BV] vectors
 - `state_update` ~15% — delta rule matvecs + outer product (the actual compute)
 - `store_final_state` ~15% — writing updated state tile back to GMEM
 - `store_output` negligible — just [BV=8] values per tile
+
+## Triton Autotuning
+
+### Observed slowdown with `@triton.autotune` on RTX 3090
+- Without decorator (hardcoded config): ~0.050 ms
+- With decorator (cached, same config picked): ~0.066 ms
+- Cause not conclusively identified — could be Python dispatch overhead, could be interaction with the benchmark harness subprocess model
+- Need more investigation before drawing conclusions
+
+### `@triton.autotune` + `@torch.compile` incompatibility
+- `torch.compile(fullgraph=True)` wrapping the outer function bypasses Triton's autotune entirely
+- The autotuner cache stays empty — torch.compile traces the kernel launch and handles it internally
+- To use autotune, the kernel launch must NOT be inside a torch.compiled function
+
+### Config sweep results (RTX 3090, no decorator, all equivalent ~0.050 ms)
+- BV=8 num_warps=1, BV=32 num_warps=1, BV=32 num_warps=2 all perform identically
+- `num_stages` is irrelevant (no loop to pipeline)
 
 ## Running Scripts Locally
 - Use the project venv to run scripts:

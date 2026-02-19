@@ -1,0 +1,5 @@
+date,commit,algo,speedup_local_min,speedup_local_max,speedup_modal_min,speedup_modal_max,comment
+2025-02-18,e4f5b02,fla-recurrent,9.5,9.5,11.4,13.2,torch.compile wrapper
+2025-02-19,55a0160,fla-recurrent,12.0,12.0,,,BV=32 num_warps=2
+2025-02-19,02c0b58,fla-recurrent,12.5,15.7,,,fused gates into triton kernel
+2025-02-19,2d23f27,fla-recurrent,24.6,31.1,31.8,34.3,eliminated state transposes
