@@ -1,4 +1,4 @@
-.PHONY: bench-fla bench-pt modal-fla modal-pt proton-example proton-trace proton-cycles
+.PHONY: bench-fla bench-pt modal-fla modal-pt proton-example proton-trace proton-cycles clean-triton-cache
 
 bench-fla:
 	python scripts/run_local.py --algo=fla-recurrent
@@ -16,6 +16,9 @@ proton-fla:
 	python scripts/profile_proton.py
 	python scripts/profile_proton.py --op-measure
 	proton-viewer -m normalized_cycles profiles/gdn_decode.hatchet
+
+clean-triton-cache:
+	rm -rf ~/.triton/cache
 
 proton-example:
 	cd timeline && TRITON_ALWAYS_COMPILE=1 TRITON_KERNEL_DUMP=1 TRITON_DUMP_DIR=ttgir_dump python example_dsl.py
