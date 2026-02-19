@@ -105,15 +105,9 @@ def kernel_fla_recurrent(
     q, k, v, state, A_log, a, dt_bias, b, scale, output, new_state
 ):
     """
-    Wrapper adapting our competition interface to FLA's fused_recurrent_gated_delta_rule_fwd_kernel.
-    Writes directly into DPS buffers (output, new_state).
-
-    Interface differences:
-        Ours                              FLA kernel
-        ----                              ----------
-        A_log, a, dt_bias → g (decay)     g: [B, T, HV] log-space decay (pre-computed)
-        b → beta (update gate)            beta: [B, T, HV] already sigmoid'd
-        state: [B, H, V, K] (k-last)     h0: [B, H, K, V] (k-first)
+    Wrapper adapting our competition interface to the fused Triton kernel.
+    Gate computation (decay, sigmoid) is fused into the kernel.
+    State transpose k-last→k-first still done here (kernel uses k-first layout).
     """
     K = q.shape[-1]
     B, T, H, _ = k.shape
@@ -124,14 +118,7 @@ def kernel_fla_recurrent(
     if scale is None or scale == 0.0:
         scale = 1.0 / math.sqrt(K)
 
-    # Compute log-space decay: g = log(decay) = -exp(A_log) * softplus(a + dt_bias)
-    # FLA kernel does: h *= exp(g), so g must be log of the decay factor
-    g = -torch.exp(A_log.float()) * F.softplus(a.float() + dt_bias.float())  # [B, 1, 8]
-
-    # Compute beta = sigmoid(b)
-    beta = torch.sigmoid(b.float())  # [B, 1, 8]
-
-    # Transpose state from k-last [B, H, V, K] to k-first [B, H, K, V] for FLA
+    # Transpose state from k-last [B, H, V, K] to k-first [B, H, K, V]
     initial_state = state.float().transpose(-1, -2).contiguous()  # [B, 8, K, V]
 
     N = B
@@ -148,8 +135,10 @@ def kernel_fla_recurrent(
         q=q,
         k=k,
         v=v,
-        g=g,
-        beta=beta,
+        A_log=A_log,
+        a_gate=a,
+        dt_bias=dt_bias,
+        b_gate=b,
         o=output,
         h0=initial_state,
         USE_INITIAL_STATE=True,
@@ -183,8 +172,10 @@ def fused_recurrent_gated_delta_rule_fwd_kernel(
     q,
     k,
     v,
-    g,
-    beta,
+    A_log,
+    a_gate,
+    dt_bias,
+    b_gate,
     o,
     h0,
     ht,
@@ -214,8 +205,6 @@ def fused_recurrent_gated_delta_rule_fwd_kernel(
     p_q = q + (i_n * H + i_h) * K + o_k  # q: [B, H, K] flattened
     p_k = k + (i_n * H + i_h) * K + o_k  # k: [B, H, K] flattened
     p_v = v + (i_n * HV + i_hv) * V + o_v  # v: [B, HV, V] flattened
-    p_g = g + i_n * HV + i_hv  # g: [B, HV] — scalar per head
-    p_beta = beta + i_n * HV + i_hv  # beta: [B, HV] — scalar per head
     p_o = o + (i_n * HV + i_hv) * V + o_v  # o: [B, HV, V] flattened
 
     mask_k = o_k < K  # [BK]
@@ -242,11 +231,17 @@ def fused_recurrent_gated_delta_rule_fwd_kernel(
         pl.exit_scope("load_qkv")
 
     b_q = b_q * scale  # [BK] — scaled query
-    b_beta = tl.load(p_beta).to(tl.float32)  # scalar — update gate
 
-    # Decay state
-    b_g = tl.load(p_g).to(tl.float32)  # scalar — log decay
-    b_h *= tl.exp(b_g)  # [BK, BV] *= scalar
+    # Compute gates from raw inputs (fused — avoids separate PyTorch kernels)
+    b_A = tl.load(A_log + i_hv).to(tl.float32)        # scalar f32 — log base decay
+    b_a = tl.load(a_gate + i_n * HV + i_hv).to(tl.float32)  # scalar bf16→f32
+    b_dt = tl.load(dt_bias + i_hv).to(tl.float32)     # scalar f32 — decay bias
+    b_b = tl.load(b_gate + i_n * HV + i_hv).to(tl.float32)  # scalar bf16→f32
+
+    x = b_a + b_dt
+    sp = tl.where(x > 20.0, x, tl.log(1.0 + tl.exp(x)))  # softplus
+    b_h *= tl.exp(-tl.exp(b_A) * sp)  # decay state: g = exp(-exp(A_log) * softplus(a + dt_bias))
+    b_beta = 1.0 / (1.0 + tl.exp(-b_b))  # sigmoid(b) — update gate
 
     if PROFILE:
         pl.enter_scope("state_update")
