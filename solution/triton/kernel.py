@@ -120,9 +120,8 @@ def kernel_fla_recurrent(
     N = B
     BK = 128
     BV = 32
-    NV = triton.cdiv(V, BV)
 
-    grid = (NV, N * HV)
+    grid = lambda meta: (triton.cdiv(V, meta["BV"]), N * HV)
     fused_recurrent_gated_delta_rule_fwd_kernel[grid](
         q=q,
         k=k,
@@ -156,6 +155,20 @@ def kernel_fla_recurrent(
 # ---------------------------------------------------------------------------
 
 
+# To sweep configs, uncomment @triton.autotune below and remove num_warps/num_stages/BV
+# from the launch call. Grid is already adaptive via lambda meta.
+# Run with TRITON_PRINT_AUTOTUNING=1, logs go to ./logs/fib-bench/.
+# Best config on RTX 3090: BV=16, num_warps=8, num_stages=1
+# (all configs perform equivalently — kernel is memory-bound).
+# @triton.autotune(
+#     configs=[
+#         triton.Config({"BV": bv}, num_warps=nw, num_stages=ns)
+#         for bv in [8, 16, 32, 64, 128]
+#         for nw in [1, 2, 4, 8]
+#         for ns in [1, 2, 3]
+#     ],
+#     key=["B", "H", "HV", "K", "V", "BK"],
+# )
 @triton.jit
 def fused_recurrent_gated_delta_rule_fwd_kernel(
     q,
@@ -222,14 +235,16 @@ def fused_recurrent_gated_delta_rule_fwd_kernel(
     b_q = b_q * scale  # [BK] — scaled query
 
     # Compute gates from raw inputs (fused — avoids separate PyTorch kernels)
-    b_A = tl.load(A_log + i_hv).to(tl.float32)        # scalar f32 — log base decay
+    b_A = tl.load(A_log + i_hv).to(tl.float32)  # scalar f32 — log base decay
     b_a = tl.load(a_gate + i_n * HV + i_hv).to(tl.float32)  # scalar bf16→f32
-    b_dt = tl.load(dt_bias + i_hv).to(tl.float32)     # scalar f32 — decay bias
+    b_dt = tl.load(dt_bias + i_hv).to(tl.float32)  # scalar f32 — decay bias
     b_b = tl.load(b_gate + i_n * HV + i_hv).to(tl.float32)  # scalar bf16→f32
 
     x = b_a + b_dt
     sp = tl.where(x > 20.0, x, tl.log(1.0 + tl.exp(x)))  # softplus
-    b_h *= tl.exp(-tl.exp(b_A) * sp)  # decay state: g = exp(-exp(A_log) * softplus(a + dt_bias))
+    b_h *= tl.exp(
+        -tl.exp(b_A) * sp
+    )  # decay state: g = exp(-exp(A_log) * softplus(a + dt_bias))
     b_beta = 1.0 / (1.0 + tl.exp(-b_b))  # sigmoid(b) — update gate
 
     if PROFILE:

@@ -31,7 +31,10 @@ def get_trace_set_path() -> str:
 def run_benchmark(solution: Solution, config: BenchmarkConfig = None, num_workloads: int = 0) -> dict:
     """Run benchmark locally and return results."""
     if config is None:
-        config = BenchmarkConfig(warmup_runs=3, iterations=100, num_trials=5)
+        config = BenchmarkConfig(
+            warmup_runs=3, iterations=100, num_trials=5,
+            log_dir=str(PROJECT_ROOT / "logs" / "fib-bench"),
+        )
 
     trace_set_path = get_trace_set_path()
     trace_set = TraceSet.from_path(trace_set_path)

@@ -213,20 +213,25 @@ python scripts/run_local.py --algo=pt-reference      # compiled PyTorch referenc
 
 ## Triton Autotuning
 
-### Observed slowdown with `@triton.autotune` on RTX 3090
-- Without decorator (hardcoded config): ~0.050 ms
-- With decorator (cached, same config picked): ~0.066 ms
-- Cause not conclusively identified — could be Python dispatch overhead, could be interaction with the benchmark harness subprocess model
-- Need more investigation before drawing conclusions
+### `@triton.autotune` adds ~10-12% Python dispatch overhead (confirmed)
+- Tested with single-config autotune (identical kernel, same BV=32/num_warps=2/num_stages=3)
+- Without decorator: ~0.052 ms (~29x speedup)
+- With `@triton.autotune` (single config, warm cache): ~0.058 ms (~26x speedup)
+- ~0.006 ms overhead per launch — pure Python-side autotuner wrapper cost
+- **Conclusion**: avoid `@triton.autotune` for this kernel; hardcode config at launch site
 
 ### `@triton.autotune` + `@torch.compile` incompatibility
 - `torch.compile(fullgraph=True)` wrapping the outer function bypasses Triton's autotune entirely
 - The autotuner cache stays empty — torch.compile traces the kernel launch and handles it internally
 - To use autotune, the kernel launch must NOT be inside a torch.compiled function
 
-### Config sweep results (RTX 3090, no decorator, all equivalent ~0.050 ms)
-- BV=8 num_warps=1, BV=32 num_warps=1, BV=32 num_warps=2 all perform identically
+### Config sweep results (RTX 3090)
+- Autotuner sweep over num_warps={1,2,4,8} x num_stages={1,2,3} (12 configs)
+- `TRITON_PRINT_AUTOTUNING=1` output: autotuner picked `num_warps=8, num_stages=3`
+- Benchmark verification: num_warps=8 (~0.052 ms) ≈ num_warps=2 (~0.052 ms) — no meaningful difference
+- All configs perform equivalently because the kernel is memory-bound (tiny compute, dominated by state loads/stores)
 - `num_stages` is irrelevant (no loop to pipeline)
+- **Current hardcoded config (num_warps=2, num_stages=3) is optimal** — confirmed by autotuner sweep
 
 ## Running Scripts Locally
 - Use the project venv to run scripts:
