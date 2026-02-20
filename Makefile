@@ -3,10 +3,11 @@
 #   NUM_WORKLOADS=3 make modal-fla
 # TRITON_PRINT_AUTOTUNING is always on (logs go to logs/fib-bench/)
 
-.PHONY: bench-fla bench-pt modal-fla modal-pt modal-logs bench-fla-all proton-fla proton-example clean-triton-cache document-speedups
+.PHONY: bench-fla bench-pt bench-tma modal-fla modal-pt modal-tma modal-get-logs modal-clear-logs bench-fla-all bench-tma-all clean-empty-logs proton-fla proton-example clean-triton-cache document-speedups
 
 export TRITON_PRINT_AUTOTUNING=1
 N ?= 0
+ALGO ?= fla-recurrent
 
 bench-fla:
 	python scripts/run_local.py --algo=fla-recurrent -n $(N)
@@ -14,8 +15,14 @@ bench-fla:
 bench-pt:
 	python scripts/run_local.py --algo=pt-reference -n $(N)
 
+bench-tma:
+	python scripts/run_local.py --algo=fla-tma -n $(N)
+
 modal-fla:
 	ALGO=fla-recurrent modal run scripts/run_modal.py
+
+modal-tma:
+	ALGO=fla-tma modal run scripts/run_modal.py
 
 modal-pt:
 	ALGO=pt-reference modal run scripts/run_modal.py
@@ -24,15 +31,23 @@ COMMENT ?=
 
 bench-fla-all:
 	mkdir -p logs
-	$(MAKE) bench-fla 2>&1 | tee logs/bench-local.log
-	$(MAKE) modal-fla 2>&1 | tee logs/bench-modal.log
+	$(MAKE) bench-fla 2>&1 | tee logs/bench-fla-local.log
+	$(MAKE) modal-fla 2>&1 | tee logs/bench-fla-modal.log
+
+bench-tma-all:
+	mkdir -p logs
+	$(MAKE) bench-tma 2>&1 | tee logs/bench-tma-local.log
+	$(MAKE) modal-tma 2>&1 | tee logs/bench-tma-modal.log
 
 document-speedups:
-	python scripts/log_speedups.py "$(COMMENT)"
+	python scripts/log_speedups.py --algo=$(ALGO) "$(COMMENT)"
 
-modal-logs:
+modal-get-logs:
 	mkdir -p logs/fib-bench-modal
-	modal volume get flashinfer-trace logs/ logs/fib-bench-modal/
+	modal volume get flashinfer-trace logs/ logs/fib-bench-modal/ --force
+
+modal-clear-logs:
+	modal volume rm -r flashinfer-trace logs/
 
 proton-fla:
 	python scripts/profile_proton.py
@@ -43,6 +58,9 @@ proton-fla:
 	python scripts/profile_proton.py --pcsampling --iters 10
 	@echo "\n=== Line-by-line breakdown (PC sampling %) ==="
 	script -q -c "proton-viewer -m num_samples/% profiles/gdn_decode_lines.hatchet -i profile" /dev/null | tee profiles/gdn_decode_lines.txt
+
+clean-empty-logs:
+	find logs/fib-bench logs/fib-bench-modal -empty -name '*.log' -delete 2>/dev/null; true
 
 clean-triton-cache:
 	rm -rf ~/.triton/cache

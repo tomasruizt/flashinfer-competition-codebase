@@ -27,6 +27,7 @@ from flashinfer_bench import Benchmark, BenchmarkConfig, Solution, TraceSet
 
 ALGO_ENTRY_POINTS = {
     "fla-recurrent": "kernel.py::kernel_fla_recurrent",
+    "fla-tma": "kernel.py::kernel_fla_tma",
     "pt-reference": "kernel.py::kernel_pt_reference",
 }
 

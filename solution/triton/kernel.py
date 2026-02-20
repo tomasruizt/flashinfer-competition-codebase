@@ -6,6 +6,15 @@ import triton
 import triton.language as tl
 import triton.profiler.language as pl
 
+# Allocator for Triton kernels that need scratch memory (TMA on Blackwell)
+triton.set_allocator(
+    lambda size, align, stream: torch.empty(
+        size,
+        device="cuda",
+        dtype=torch.int8,
+    )
+)
+
 
 @torch.no_grad()
 @torch.compile(fullgraph=True)
@@ -284,3 +293,149 @@ def fused_recurrent_gated_delta_rule_fwd_kernel(
     if PROFILE:
         pl.exit_scope("store_final_state")
         pl.exit_scope("gdn_recurrent")
+
+
+# ---------------------------------------------------------------------------
+# TMA + warp-specialized kernel (Hopper/Blackwell only, cc >= 9)
+# One CTA per head, loops over V-tiles internally.
+# Producer warps issue TMA loads; consumer warps compute.
+# ---------------------------------------------------------------------------
+
+
+@torch.no_grad()
+def kernel_fla_tma(q, k, v, state, A_log, a, dt_bias, b, scale, output, new_state):
+    """
+    TMA + warp-specialized variant. One CTA per (batch, v-head).
+    Requires Hopper/Blackwell (compute capability >= 9).
+    """
+    K = q.shape[-1]
+    B, T, H, _ = k.shape
+    assert T == 1
+    V = v.shape[-1]
+    HV = v.shape[2]
+
+    if scale is None or scale == 0.0:
+        scale = 1.0 / math.sqrt(K)
+
+    BK = 128
+    BV = 64  # Best B200 config: BV=64, num_warps=4, num_stages=2
+
+    grid = (B * HV,)  # one CTA per head
+    fused_recurrent_gated_delta_rule_tma_kernel[grid](
+        q=q,
+        k=k,
+        v=v,
+        A_log=A_log,
+        a_gate=a,
+        dt_bias=dt_bias,
+        b_gate=b,
+        o=output,
+        h0=state,
+        ht=new_state,
+        scale=scale,
+        B=B,
+        H=H,
+        HV=HV,
+        K=K,
+        V=V,
+        BK=BK,
+        BV=BV,
+        num_warps=4,
+        num_stages=2,
+    )
+
+
+# To re-run autotune, replace @triton.jit with:
+# @triton.autotune(
+#     configs=[
+#         triton.Config({"BV": bv}, num_warps=nw, num_stages=ns)
+#         for bv in [8, 16, 32, 64, 128]
+#         for nw in [4, 8]  # warp_specialize on Blackwell requires num_warps % 4 == 0
+#         for ns in [1, 2, 3]
+#     ],
+#     key=["B", "H", "HV", "K", "V", "BK"],
+# )
+@triton.jit
+def fused_recurrent_gated_delta_rule_tma_kernel(
+    q,
+    k,
+    v,
+    A_log,
+    a_gate,
+    dt_bias,
+    b_gate,
+    o,
+    h0,
+    ht,
+    scale,
+    B: tl.constexpr,
+    H: tl.constexpr,
+    HV: tl.constexpr,
+    K: tl.constexpr,
+    V: tl.constexpr,
+    BK: tl.constexpr,
+    BV: tl.constexpr,
+):
+    # Grid: (B*HV,) — one CTA per (batch, v-head)
+    # Loops over V-tiles internally with warp specialization:
+    #   producer warps: TMA state loads/stores
+    #   consumer warps: decay + delta rule + output compute
+    i_nh = tl.program_id(0)
+    i_n = i_nh // HV
+    i_hv = i_nh % HV
+    i_h = i_hv // (HV // H)  # q/k-head index (GVA: 2 v-heads per qk-head)
+
+    # Load q, k once (shared across all V-tiles) — tiny, regular loads
+    o_k = tl.arange(0, BK)
+    b_q = tl.load(q + (i_n * H + i_h) * K + o_k).to(tl.float32) * scale
+    b_k = tl.load(k + (i_n * H + i_h) * K + o_k).to(tl.float32)
+
+    # Load and compute gate scalars once
+    b_A = tl.load(A_log + i_hv).to(tl.float32)
+    b_a = tl.load(a_gate + i_n * HV + i_hv).to(tl.float32)
+    b_dt = tl.load(dt_bias + i_hv).to(tl.float32)
+    b_b = tl.load(b_gate + i_n * HV + i_hv).to(tl.float32)
+
+    x = b_a + b_dt
+    sp = tl.where(x > 20.0, x, tl.log(1.0 + tl.exp(x)))  # softplus
+    g = tl.exp(-tl.exp(b_A) * sp)  # decay gate
+    b_beta = 1.0 / (1.0 + tl.exp(-b_b))  # sigmoid — update gate
+
+    # TMA descriptors for state [V, K] — the dominant memory traffic (64 KB per head)
+    h0_desc = tl.make_tensor_descriptor(
+        h0 + i_nh * V * K,
+        shape=[V, K],
+        strides=[K, 1],
+        block_shape=[BV, BK],
+    )
+    ht_desc = tl.make_tensor_descriptor(
+        ht + i_nh * V * K,
+        shape=[V, K],
+        strides=[K, 1],
+        block_shape=[BV, BK],
+    )
+
+    NV: tl.constexpr = V // BV
+    for i_v in tl.range(0, NV, 1, flatten=True, warp_specialize=True):
+        # TMA load state tile [BV, BK]
+        b_h = h0_desc.load([i_v * BV, 0]).to(tl.float32)
+
+        # Load v tile [BV] — tiny, regular load
+        o_v = i_v * BV + tl.arange(0, BV)
+        b_v = tl.load(v + (i_n * HV + i_hv) * V + o_v).to(tl.float32)
+
+        # Decay
+        b_h *= g
+
+        # Delta rule: retrieve old value, blend with new, update state
+        b_v = b_beta * (b_v - tl.sum(b_h * b_k[None, :], 1))
+        b_h += b_v[:, None] * b_k[None, :]
+
+        # Output
+        b_o = tl.sum(b_h * b_q[None, :], 1)
+
+        # TMA store updated state tile
+        ht_desc.store([i_v * BV, 0], b_h.to(ht_desc.dtype))
+
+        # Store output [BV] — tiny, regular store
+        tl.store(o + (i_n * HV + i_hv) * V + o_v, b_o.to(tl.bfloat16))
