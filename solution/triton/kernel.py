@@ -132,7 +132,6 @@ def kernel_fla_recurrent(
         b_gate=b,
         o=output,
         h0=state,
-        USE_INITIAL_STATE=True,
         ht=new_state,
         scale=scale,
         B=B,
@@ -190,7 +189,6 @@ def fused_recurrent_gated_delta_rule_fwd_kernel(
     V: tl.constexpr,
     BK: tl.constexpr,
     BV: tl.constexpr,
-    USE_INITIAL_STATE: tl.constexpr,
     PROFILE: tl.constexpr = False,
 ):
     # Grid: (NV=V/BV, B*HV) — each program handles a [BK, BV] tile of one head's state
@@ -217,10 +215,8 @@ def fused_recurrent_gated_delta_rule_fwd_kernel(
     # Load state tile
     if PROFILE:
         pl.enter_scope("load_initial_state")
-    b_h = tl.zeros([BV, BK], dtype=tl.float32)  # [BV=8, BK=128] matches [V, K] memory layout
-    if USE_INITIAL_STATE:
-        p_h0 = h0 + i_nh * V * K + o_v[:, None] * K + o_k[None, :]  # k-last [V, K]
-        b_h += tl.load(p_h0, mask=mask_h, other=0).to(tl.float32)  # [BV, BK] from GMEM
+    p_h0 = h0 + i_nh * V * K + o_v[:, None] * K + o_k[None, :]  # k-last [V, K]
+    b_h = tl.load(p_h0, mask=mask_h, other=0).to(tl.float32)  # [BV, BK] from GMEM
     if PROFILE:
         pl.exit_scope("load_initial_state")
 

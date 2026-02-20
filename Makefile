@@ -3,7 +3,7 @@
 #   NUM_WORKLOADS=3 make modal-fla
 # TRITON_PRINT_AUTOTUNING is always on (logs go to logs/fib-bench/)
 
-.PHONY: bench-fla bench-pt modal-fla modal-pt modal-logs bench-fla-all proton-fla proton-example clean-triton-cache
+.PHONY: bench-fla bench-pt modal-fla modal-pt modal-logs bench-fla-all proton-fla proton-example clean-triton-cache document-speedups
 
 export TRITON_PRINT_AUTOTUNING=1
 N ?= 0
@@ -26,6 +26,8 @@ bench-fla-all:
 	mkdir -p logs
 	$(MAKE) bench-fla 2>&1 | tee logs/bench-local.log
 	$(MAKE) modal-fla 2>&1 | tee logs/bench-modal.log
+
+document-speedups:
 	python scripts/log_speedups.py "$(COMMENT)"
 
 modal-logs:
