@@ -189,3 +189,66 @@ State is ~99.2% of total memory traffic. The kernel is essentially a **state mem
 - `load_qkv` ~25% (small tensors, but many tiles)
 - `state_update` ~15% (the actual compute)
 - `store_output` negligible
+
+## Arithmetic intensity: 0.87 FLOPs/byte
+
+Per head (B=1, K=128, V=128):
+
+| Operation                     | FLOPs          |
+| ----------------------------- | -------------- |
+| Decay (`g * S`)               | 16,384         |
+| k@S matvec                    | 32,768         |
+| Blend (`β*(v - k@S)`)         | 256            |
+| Outer product + state update  | 32,768         |
+| q@S matvec                    | 32,768         |
+| **Per head**                  | **~115K**      |
+| **8 heads total**             | **~920K**      |
+
+Bytes: ~1,028 KB (dominated by 2 × 512 KB state load/store). AI = 920K / 1,028 KB ≈ **0.87 FLOPs/byte**.
+
+Roofline balance points for comparison:
+
+| GPU      | Peak F32   | Bandwidth | Balance point   | Ratio vs kernel |
+| -------- | ---------- | --------- | --------------- | --------------- |
+| RTX 3090 | 35.6 TF    | 936 GB/s  | 38 FLOPs/byte   | 43× above       |
+| B200     | ~180 TF    | 8 TB/s    | ~22 FLOPs/byte  | 25× above       |
+
+The kernel is deep in the memory-bound regime. But the data volume is so small (1 MB) that it can't even saturate bandwidth — making it latency-bound in practice (see below).
+
+## Why the kernel is latency-bound, not bandwidth-bound
+
+Total GMEM traffic is ~1 MB (512 KB state read + 512 KB state write + negligible q/k/v/scalars). At RTX 3090's 936 GB/s, this should take ~1 μs. The kernel takes ~50 μs — **<2% of peak bandwidth utilization**. The kernel is too small to saturate the memory subsystem.
+
+The ~50 μs is dominated by:
+- **Kernel launch overhead** (~5-10 μs Python + CUDA dispatch)
+- **DRAM access latency** (~400-600 ns per access, poorly hidden with tiny CTAs)
+- **CTA scheduling overhead** for 128 small CTAs across 82 SMs
+
+This is a single decode step — one read and one write of the state is irreducible. There are no redundant GMEM round-trips to eliminate.
+
+## Tile shape: [BV, BK] vs [BK, BV]
+
+The FLA kernel originally used `b_h = [BK, BV]` register tile shape, but memory is k-last `[V, K]` — meaning K (stride 1) is the contiguous dimension. The tile shape was transposed relative to memory layout.
+
+**Changed to `[BV, BK]`** so the last dimension (BK) has stride 1 in memory, matching the k-last layout. This ensures coalesced access regardless of Triton's compiler heuristics (default blocked layout maps threads to the last dimension first).
+
+**Benchmark result**: No measurable difference on RTX 3090 (~0.051 ms, ~29x). Triton's coalescing pass likely handled the transposed layout already. Kept the change for correctness by convention.
+
+## Why BV autotune shows no difference
+
+Tested BV={8, 16, 32, 64, 128} — all perform identically at ~0.050 ms. Two opposing effects cancel out:
+
+| BV   | CTAs | Tiles/head | q/k redundancy | Parallelism             |
+| ---- | ---- | ---------- | -------------- | ----------------------- |
+| 8    | 128  | 16         | 32× each       | High (1.5 CTAs/SM)      |
+| 32   | 32   | 4          | 8× each        | Moderate                |
+| 128  | 8    | 1          | 1× each        | Low (74/82 SMs idle)    |
+
+- **Larger BV**: fewer CTAs → less redundant q/k loads, but q/k are only ~4-64 KB vs 1 MB state (negligible savings)
+- **Smaller BV**: more CTAs → better latency hiding through interleaving, but more scheduling overhead
+
+State traffic (the dominant cost) is identical regardless of BV. The kernel is latency-bound, not bandwidth-bound, so tiling strategy doesn't matter.
+
+## Why BK is not tunable
+
+BK must equal K=128. The matvec `k@S` (sum over K dimension) and outer product `k^T @ v` require the full K dimension. Tiling BK<128 would need two passes over the state (first to compute k@S, then to apply the update), doubling GMEM traffic. Register pressure at BK=128 is trivial: [BV=8, BK=128] = 1024 f32 / 256 threads = 4 registers/thread.

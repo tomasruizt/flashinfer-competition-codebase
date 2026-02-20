@@ -243,14 +243,14 @@ def fused_recurrent_gated_delta_rule_fwd_kernel(
 
     if PROFILE:
         pl.enter_scope("compute_decay")
-    x = b_a + b_dt
-    sp = tl.where(x > 20.0, x, tl.log(1.0 + tl.exp(x)))  # softplus
+    x = b_a + b_dt  # scalar f32
+    sp = tl.where(x > 20.0, x, tl.log(1.0 + tl.exp(x)))  # softplus: scalar f32
     # decay state: g = exp(-exp(A_log) * softplus(a + dt_bias))
-    b_h *= tl.exp(-tl.exp(b_A) * sp)
+    b_h *= tl.exp(-tl.exp(b_A) * sp)  # scalar f32
     if PROFILE:
         pl.exit_scope("compute_decay")
 
-    b_beta = 1.0 / (1.0 + tl.exp(-b_b))  # sigmoid(b) — update gate
+    b_beta = 1.0 / (1.0 + tl.exp(-b_b))  # sigmoid(b) — update gate, scalar f32
 
     if PROFILE:
         pl.enter_scope("state_update")
