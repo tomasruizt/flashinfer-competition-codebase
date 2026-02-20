@@ -4,3 +4,4 @@ date,commit,algo,speedup_local_min,speedup_local_max,speedup_modal_min,speedup_m
 2025-02-19,02c0b58,fla-recurrent,12.5,15.7,,,fused gates into triton kernel
 2025-02-19,2d23f27,fla-recurrent,24.6,31.1,31.8,34.3,eliminated state transposes
 2026-02-20,0b3bba6,fla-recurrent,20.6,29.6,32.8,36.0,B200 optimal config BV=8
+2026-02-20,8c5d37d,fla-recurrent,23.8,30.1,33.8,38.8,Transpose tile to match tensor layout
