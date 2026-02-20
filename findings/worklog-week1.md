@@ -10,6 +10,8 @@ Autotuning, micro-optimizations, and a TMA kernel variant.
 - **Remove zero pre-init**: Stopped initializing state accumulator with zeros (unnecessary since we overwrite).
 - **TMA kernel** (`fla-tma`): New kernel variant using TMA descriptors and warp-specialized producer/consumer loop. ~36x on RTX 3090 (best local result), but no improvement on B200.
 - Claude thinks kernel is latency-bound, because in the RTX3090 it should take ~1 μs, but it takes ~50 μs.
+- Added NCU profiling. The FLA kernel runtime is measured as ~4μs, even though FI-bench says 50μs. Strange.
+- worked time: 4h06
 
 ## Worklog 2026-02-19
 

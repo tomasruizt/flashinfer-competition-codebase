@@ -219,12 +219,33 @@ The kernel is deep in the memory-bound regime. But the data volume is so small (
 
 Total GMEM traffic is ~1 MB (512 KB state read + 512 KB state write + negligible q/k/v/scalars). At RTX 3090's 936 GB/s, this should take ~1 μs. The kernel takes ~50 μs — **<2% of peak bandwidth utilization**. The kernel is too small to saturate the memory subsystem.
 
-The ~50 μs is dominated by:
-- **Kernel launch overhead** (~5-10 μs Python + CUDA dispatch)
-- **DRAM access latency** (~400-600 ns per access, poorly hidden with tiny CTAs)
-- **CTA scheduling overhead** for 128 small CTAs across 82 SMs
-
 This is a single decode step — one read and one write of the state is irreducible. There are no redundant GMEM round-trips to eliminate.
+
+## Hypothesis: ~90% of measured latency is launch overhead, not GPU execution
+
+**Evidence (NCU profiling, RTX 3090):**
+
+| Measurement | Value | Source |
+|---|---|---|
+| GPU kernel execution time | **3.81 µs** | NCU `--set full` |
+| End-to-end benchmark time | **~51 µs** | flashinfer-bench `do_bench()` |
+| Implied launch overhead | **~47 µs** (~92%) | difference |
+
+NCU profiles only GPU-side kernel execution. The benchmark measures CUDA-event-to-CUDA-event time, which includes the gap between recording the start event (after `torch.cuda.synchronize()`) and the kernel actually starting on the GPU. This gap is the launch latency: Python → Triton runtime → CUDA driver → GPU.
+
+**Other NCU findings supporting this:**
+- Compute throughput: 12.6% — GPU is mostly idle
+- Memory throughput: 15.9% (144 GB/s of 936 GB/s peak)
+- Achieved occupancy: 24.9% (0.26 waves, 128 blocks on 82 SMs)
+- Schedulers issue one instruction every 4.4 cycles (should be ~1)
+- 77% of cycles have no eligible warp
+
+**Implication:** Further optimizing the Triton kernel (tiling, warp count, etc.) has negligible impact on end-to-end latency. The bottleneck is launch overhead. Possible mitigations:
+- **CUDA graphs** — capture and replay the kernel launch, eliminating Python/driver overhead
+- **Persistent kernel** — launch once, keep running across tokens
+- **Fuse with adjacent layers** — amortize launch cost over more work (e.g., fuse with output projection)
+
+**Status:** Hypothesis. Needs validation on B200 (the competition target) where launch overhead may differ. Also needs confirmation that the ~47 µs gap is truly launch latency and not some other overhead in the benchmark harness.
 
 ## Tile shape: [BV, BK] vs [BK, BV]
 

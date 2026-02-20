@@ -3,11 +3,15 @@
 #   NUM_WORKLOADS=3 make modal-fla
 # TRITON_PRINT_AUTOTUNING is always on (logs go to logs/fib-bench/)
 
-.PHONY: bench-fla bench-pt bench-tma modal-fla modal-pt modal-tma modal-get-logs modal-clear-logs bench-fla-all bench-tma-all clean-empty-logs proton-fla proton-example clean-triton-cache document-speedups
+.PHONY: bench-fla bench-pt bench-tma modal-fla modal-pt modal-tma modal-get-logs modal-clear-logs bench-fla-all bench-tma-all clean-empty-logs proton-fla proton-example clean-triton-cache document-speedups ncu-fla ncu-fla ncu-export-fla
 
 export TRITON_PRINT_AUTOTUNING=1
 N ?= 0
 ALGO ?= fla-recurrent
+NCU := $(shell which ncu)
+PYTHON := $(shell which python)
+SUDO=
+NCU_RESULTS_DIR := profiles/ncu
 
 bench-fla:
 	python scripts/run_local.py --algo=fla-recurrent -n $(N)
@@ -64,6 +68,25 @@ clean-empty-logs:
 
 clean-triton-cache:
 	rm -rf ~/.triton/cache
+
+ncu-fla:
+	mkdir -p $(NCU_RESULTS_DIR)
+	$(SUDO) $(NCU) --set full \
+		--import-source yes \
+		--kernel-name fused_recurrent_gated_delta_rule_fwd_kernel \
+		--launch-skip 3 --launch-count 1 \
+		-fo $(NCU_RESULTS_DIR)/gdn-decode-fla \
+		$(PYTHON) scripts/profile_ncu.py --algo=fla-recurrent
+
+NCU_TXT_DIR := profiles/ncu-txt
+
+ncu-export-fla:
+	mkdir -p $(NCU_TXT_DIR)
+	$(SUDO) $(NCU) --set full \
+		--import-source yes \
+		--kernel-name fused_recurrent_gated_delta_rule_fwd_kernel \
+		--launch-skip 3 --launch-count 1 \
+		$(PYTHON) scripts/profile_ncu.py --algo=fla-recurrent > $(NCU_TXT_DIR)/gdn-decode-fla.txt
 
 proton-example:
 	cd timeline && TRITON_ALWAYS_COMPILE=1 TRITON_KERNEL_DUMP=1 TRITON_DUMP_DIR=ttgir_dump python example_dsl.py
