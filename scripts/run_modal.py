@@ -35,18 +35,32 @@ app = modal.App("flashinfer-bench")
 trace_volume = modal.Volume.from_name("flashinfer-trace", create_if_missing=True)
 TRACE_SET_PATH = "/data"
 
-image = modal.Image.debian_slim(python_version="3.12").pip_install(
-    "flashinfer-bench", "torch", "triton", "numpy", "flash-linear-attention"
+image = (
+    modal.Image.debian_slim(python_version="3.12")
+    .pip_install(
+        "flashinfer-bench", "torch", "triton", "numpy", "flash-linear-attention"
+    )
+    .env({"TRITON_PRINT_AUTOTUNING": "1"})
 )
+
+
+LOG_PATH = "/data/logs"
 
 
 @app.function(
     image=image, gpu="B200:1", timeout=3600, volumes={TRACE_SET_PATH: trace_volume}
 )
-def run_benchmark(solution: Solution, config: BenchmarkConfig = None) -> dict:
+def run_benchmark(
+    solution: Solution, config: BenchmarkConfig = None, num_workloads: int = 0
+) -> dict:
     """Run benchmark on Modal B200 and return results."""
     if config is None:
-        config = BenchmarkConfig(warmup_runs=3, iterations=100, num_trials=5)
+        config = BenchmarkConfig(
+            warmup_runs=3,
+            iterations=100,
+            num_trials=5,
+            log_dir=LOG_PATH,
+        )
 
     trace_set = TraceSet.from_path(TRACE_SET_PATH)
 
@@ -58,6 +72,9 @@ def run_benchmark(solution: Solution, config: BenchmarkConfig = None) -> dict:
 
     if not workloads:
         raise ValueError(f"No workloads found for definition '{solution.definition}'")
+
+    if num_workloads > 0:
+        workloads = workloads[:num_workloads]
 
     bench_trace_set = TraceSet(
         root=trace_set.root,
@@ -116,6 +133,7 @@ def print_results(results: dict):
 
 
 algo = os.getenv("ALGO", "fla-recurrent")
+num_workloads = int(os.getenv("NUM_WORKLOADS", "0"))
 
 
 @app.local_entrypoint()
@@ -133,8 +151,10 @@ def main():
     solution = Solution.model_validate_json(solution_path.read_text())
     print(f"Loaded: {solution.name} ({solution.definition})")
 
-    print("\nRunning benchmark on Modal B200...")
-    results = run_benchmark.remote(solution)
+    print(
+        f"\nRunning benchmark on Modal B200 (num_workloads={num_workloads or 'all'})..."
+    )
+    results = run_benchmark.remote(solution, num_workloads=num_workloads)
 
     if not results:
         print("No results returned!")

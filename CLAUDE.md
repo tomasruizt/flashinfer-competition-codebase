@@ -225,19 +225,27 @@ python scripts/run_local.py --algo=pt-reference      # compiled PyTorch referenc
 - The autotuner cache stays empty — torch.compile traces the kernel launch and handles it internally
 - To use autotune, the kernel launch must NOT be inside a torch.compiled function
 
-### Config sweep results (RTX 3090)
-- Autotuner sweep over num_warps={1,2,4,8} x num_stages={1,2,3} (12 configs)
-- `TRITON_PRINT_AUTOTUNING=1` output: autotuner picked `num_warps=8, num_stages=3`
-- Benchmark verification: num_warps=8 (~0.052 ms) ≈ num_warps=2 (~0.052 ms) — no meaningful difference
-- All configs perform equivalently because the kernel is memory-bound (tiny compute, dominated by state loads/stores)
-- `num_stages` is irrelevant (no loop to pipeline)
-- **Current hardcoded config (num_warps=2, num_stages=3) is optimal** — confirmed by autotuner sweep
+### Config sweep results
+- Full sweep: BV={8,16,32,64,128} x num_warps={1,2,4,8} x num_stages={1,2,3} (60 configs)
+- Autotuner logs: `logs/fib-bench/` (local), `logs/fib-bench-modal/` (B200)
+- **RTX 3090 winner**: BV=16, num_warps=8, num_stages=1
+- **B200 winner**: BV=8, num_warps=8, num_stages=2
+- All configs perform equivalently — kernel is memory-bound (dominated by state loads/stores)
+- Hardcoded config (BV=8, num_warps=8, num_stages=2) matches B200 autotuner pick
 
-## Running Scripts Locally
-- Use the project venv to run scripts:
-  ```bash
-  .venv/bin/python script.py
-  ```
+## Makefile — Primary Interface
+The Makefile is the main way to run things. Always prefer `make` targets over raw commands, and improve them when adding new workflows. Pipe long outputs to log files.
+```
+make bench-fla              # local benchmark (fla-recurrent)
+make bench-pt               # local benchmark (pt-reference)
+make modal-fla              # Modal B200 benchmark (fla-recurrent)
+make modal-pt               # Modal B200 benchmark (pt-reference)
+make modal-logs             # download Modal benchmark logs to logs/fib-bench-modal/
+make proton-fla             # profile kernel with Proton
+make clean-triton-cache     # clear ~/.triton/cache
+```
+- Env var overrides: `NUM_WORKLOADS=3 make modal-fla` (limit workloads), `ALGO=... make modal-fla`
+- `-n 3` flag on local scripts: `python scripts/run_local.py --algo=fla-recurrent -n 3`
 - Local GPU: RTX 3090 (Ampere SM86) — cannot run Hopper-only features (TMA, warpgroup MMA, Gluon matmul examples)
 
 ## flashinfer-bench Internals

@@ -119,7 +119,7 @@ def kernel_fla_recurrent(
 
     N = B
     BK = 128
-    BV = 32
+    BV = 8
 
     grid = lambda meta: (triton.cdiv(V, meta["BV"]), N * HV)
     fused_recurrent_gated_delta_rule_fwd_kernel[grid](
@@ -143,8 +143,8 @@ def kernel_fla_recurrent(
         BK=BK,
         BV=BV,
         PROFILE=bool(os.environ.get("PROTON_PROFILE")),
-        num_warps=2,
-        num_stages=3,
+        num_warps=8,
+        num_stages=2,
     )
 
 
@@ -159,6 +159,7 @@ def kernel_fla_recurrent(
 # from the launch call. Grid is already adaptive via lambda meta.
 # Run with TRITON_PRINT_AUTOTUNING=1, logs go to ./logs/fib-bench/.
 # Best config on RTX 3090: BV=16, num_warps=8, num_stages=1
+# Best config on B200:    BV=8,  num_warps=8, num_stages=2
 # (all configs perform equivalently — kernel is memory-bound).
 # @triton.autotune(
 #     configs=[
