@@ -170,12 +170,14 @@ python scripts/run_local.py --algo=pt-reference      # compiled PyTorch referenc
 | ------------------------ | --------- | -------------------- |
 | pt-reference (eager)     | ~1.4 ms   | ~1.0x                |
 | pt-reference (compiled)  | ~0.73 ms  | ~1.8x                |
-| fla-recurrent            | ~0.05 ms  | ~29x                 |
+| fla-recurrent            | ~0.051 ms | ~29x                 |
+| fla-tma                  | ~0.043 ms | ~34x                 |
 
 ### Performance (B200 via Modal)
 | Algo                     | Latency   | Speedup vs reference |
 | ------------------------ | --------- | -------------------- |
 | fla-recurrent            | ~0.037 ms | ~32x                 |
+| fla-tma                  | ~0.041 ms | ~31x                 |
 
 ## Modal Deployment Notes
 - The Modal image must install ALL Python packages that `kernel.py` imports at the top level
@@ -240,6 +242,9 @@ make bench-fla              # local benchmark (fla-recurrent)
 make bench-pt               # local benchmark (pt-reference)
 make modal-fla              # Modal B200 benchmark (fla-recurrent)
 make modal-pt               # Modal B200 benchmark (pt-reference)
+make bench-fla-all          # local + modal, logs to logs/bench-fla-{local,modal}.log
+make bench-tma-all          # local + modal, logs to logs/bench-tma-{local,modal}.log
+make document-speedups      # parse bench logs → findings/speedups.csv
 make modal-logs             # download Modal benchmark logs to logs/fib-bench-modal/
 make proton-fla             # profile kernel with Proton
 make clean-triton-cache     # clear ~/.triton/cache
@@ -247,6 +252,12 @@ make clean-triton-cache     # clear ~/.triton/cache
 - Env var overrides: `NUM_WORKLOADS=3 make modal-fla` (limit workloads), `ALGO=... make modal-fla`
 - `-n 3` flag on local scripts: `python scripts/run_local.py --algo=fla-recurrent -n 3`
 - Local GPU: RTX 3090 (Ampere SM86) — cannot run Hopper-only features (TMA, warpgroup MMA, Gluon matmul examples)
+
+### Log file naming convention
+- `bench-*-all` targets write logs named `logs/bench-{short}-{local,modal}.log`
+- Algo → log prefix mapping: `fla-recurrent` → `bench-fla`, `fla-tma` → `bench-tma`, `pt-reference` → `bench-pt`
+- `document-speedups` reads `ALGO` env var (default `fla-recurrent`) to find the right log files
+- Usage: `ALGO=fla-tma make document-speedups COMMENT="tma v1"`
 
 ## flashinfer-bench Internals
 - Source: `.venv/lib/python3.11/site-packages/flashinfer_bench/` (or find via `.venv/bin/python -c "import flashinfer_bench; print(flashinfer_bench.__path__)"`)

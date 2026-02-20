@@ -1,4 +1,17 @@
-# Worklog 2026-02-19
+# Worklog Week 1
+
+## Worklog 2026-02-20
+
+Autotuning, micro-optimizations, and a TMA kernel variant.
+
+- **Autotuning on B200**: Ran full config sweep (BV x num_warps x num_stages)
+- **Proton line-level profiling**: Added PC-sampling mode to `make proton-fla` to find out which ops take most time.
+- **Tile transpose**: Changed tile iteration order to match the k-last tensor layout.
+- **Remove zero pre-init**: Stopped initializing state accumulator with zeros (unnecessary since we overwrite).
+- **TMA kernel** (`fla-tma`): New kernel variant using TMA descriptors and warp-specialized producer/consumer loop. ~36x on RTX 3090 (best local result), but no improvement on B200.
+- Claude thinks kernel is latency-bound, because in the RTX3090 it should take ~1 μs, but it takes ~50 μs.
+
+## Worklog 2026-02-19
 
 Proton intra-kernel profiling and kernel cleanup.
 
@@ -9,7 +22,7 @@ Proton intra-kernel profiling and kernel cleanup.
 - Refactoring the FLA kernel yielded massive speedups. In particular moving the decay computation inside the kernel, and remove the state transposition + contiguous() calls.
 - worked time: 5h25
 
-# Worklog 2026-02-18
+## Worklog 2026-02-18
 
 Project setup and first baselines for the GDN decode kernel.
 
