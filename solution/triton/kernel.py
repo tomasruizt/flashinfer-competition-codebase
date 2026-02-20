@@ -212,15 +212,15 @@ def fused_recurrent_gated_delta_rule_fwd_kernel(
 
     mask_k = o_k < K  # [BK]
     mask_v = o_v < V  # [BV]
-    mask_h = mask_k[:, None] & mask_v[None, :]  # [BK, BV]
+    mask_h = mask_v[:, None] & mask_k[None, :]  # [BV, BK]
 
     # Load state tile
     if PROFILE:
         pl.enter_scope("load_initial_state")
-    b_h = tl.zeros([BK, BV], dtype=tl.float32)  # [BK=128, BV=8] slice of [K, V]
+    b_h = tl.zeros([BV, BK], dtype=tl.float32)  # [BV=8, BK=128] matches [V, K] memory layout
     if USE_INITIAL_STATE:
-        p_h0 = h0 + i_nh * V * K + o_v[None, :] * K + o_k[:, None]  # k-last [V, K]
-        b_h += tl.load(p_h0, mask=mask_h, other=0).to(tl.float32)  # [BK, BV] from GMEM
+        p_h0 = h0 + i_nh * V * K + o_v[:, None] * K + o_k[None, :]  # k-last [V, K]
+        b_h += tl.load(p_h0, mask=mask_h, other=0).to(tl.float32)  # [BV, BK] from GMEM
     if PROFILE:
         pl.exit_scope("load_initial_state")
 
@@ -259,18 +259,18 @@ def fused_recurrent_gated_delta_rule_fwd_kernel(
     if PROFILE:
         pl.enter_scope("state_update")
     # Delta rule: retrieve old value, blend with new, update state
-    # k@S:   sum([BK, BV] * [BK, 1], dim=0) -> [BV]  (matvec: value stored at key k)
+    # k@S:   sum([BV, BK] * [1, BK], dim=1) -> [BV]  (matvec: value stored at key k)
     # blend: scalar * ([BV] - [BV]) -> [BV]           (beta-weighted delta)
-    b_v = b_beta * (b_v - tl.sum(b_h * b_k[:, None], 0))
-    # outer product: [BK, 1] * [BV] -> [BK, BV]      (state update)
-    b_h += b_k[:, None] * b_v
+    b_v = b_beta * (b_v - tl.sum(b_h * b_k[None, :], 1))
+    # outer product: [BV, 1] * [1, BK] -> [BV, BK]   (state update)
+    b_h += b_v[:, None] * b_k[None, :]
     if PROFILE:
         pl.exit_scope("state_update")
 
     if PROFILE:
         pl.enter_scope("compute_output")
-    # q@S: sum([BK, BV] * [BK, 1], dim=0) -> [BV]    (matvec: read output from state)
-    b_o = tl.sum(b_h * b_q[:, None], 0)
+    # q@S: sum([BV, BK] * [1, BK], dim=1) -> [BV]    (matvec: read output from state)
+    b_o = tl.sum(b_h * b_q[None, :], 1)
     if PROFILE:
         pl.exit_scope("compute_output")
 
@@ -281,10 +281,10 @@ def fused_recurrent_gated_delta_rule_fwd_kernel(
         pl.exit_scope("store_output")
 
     # Store final state
-    p_ht = ht + i_nh * V * K + o_v[None, :] * K + o_k[:, None]  # k-last [V, K]
+    p_ht = ht + i_nh * V * K + o_v[:, None] * K + o_k[None, :]  # k-last [V, K]
     if PROFILE:
         pl.enter_scope("store_final_state")
-    tl.store(p_ht, b_h.to(p_ht.dtype.element_ty), mask=mask_h)  # [BK, BV] -> GMEM
+    tl.store(p_ht, b_h.to(p_ht.dtype.element_ty), mask=mask_h)  # [BV, BK] -> GMEM
     if PROFILE:
         pl.exit_scope("store_final_state")
         pl.exit_scope("gdn_recurrent")

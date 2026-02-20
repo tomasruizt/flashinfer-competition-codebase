@@ -131,9 +131,9 @@ With gates fused and transposes eliminated, the wrapper only does shape extracti
 
 ### Observed slowdown with `@triton.autotune` (RTX 3090)
 
-| Setup | Latency | Delta |
-| ----- | ------- | ----- |
-| Hardcoded config (no decorator) | ~0.050 ms | — |
+| Setup                                    | Latency   | Delta     |
+| ---------------------------------------- | --------- | --------- |
+| Hardcoded config (no decorator)          | ~0.050 ms | —         |
 | `@triton.autotune` (cached, same config) | ~0.066 ms | +0.016 ms |
 
 The cause of the ~16 µs difference is not conclusively identified. Possible explanations:
@@ -160,3 +160,32 @@ When the Triton kernel launch is inside a `@torch.compile(fullgraph=True)` funct
 - How much headroom exists on B200 vs current Triton decode kernel?
 - Can we batch across heads to improve occupancy for the decode kernel?
 - What is the optimal chunk size for prefill on B200?
+
+
+# Decode Memory Traffic Analysis (B=1)
+
+All 20 decode workloads use batch_size=1.
+
+## Tensor sizes
+
+| Tensor         | Shape            | Dtype | Size      |
+| -------------- | ---------------- | ----- | --------- |
+| state (in)     | [1, 8, 128, 128] | f32   | 512 KB    |
+| state (out)    | [1, 8, 128, 128] | f32   | 512 KB    |
+| q              | [1, 1, 4, 128]   | bf16  | 1 KB      |
+| k              | [1, 1, 4, 128]   | bf16  | 1 KB      |
+| v              | [1, 1, 8, 128]   | bf16  | 2 KB      |
+| output         | [1, 1, 8, 128]   | bf16  | 2 KB      |
+| a, b           | [1, 1, 8]        | bf16  | 16 B each |
+| A_log, dt_bias | [8]              | f32   | 32 B each |
+| **Total**      |                  |       | **~1 MB** |
+
+State is ~99.2% of total memory traffic. The kernel is essentially a **state memcpy with math sprinkled in**.
+
+## Proton profiling confirms this (RTX 3090, BV=8)
+
+- `load_initial_state` ~40% of runtime
+- `store_final_state` ~15% of runtime
+- `load_qkv` ~25% (small tensors, but many tiles)
+- `state_update` ~15% (the actual compute)
+- `store_output` negligible
