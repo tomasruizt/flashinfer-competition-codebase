@@ -35,7 +35,12 @@ modal-logs:
 proton-fla:
 	python scripts/profile_proton.py
 	python scripts/profile_proton.py --op-measure
-	proton-viewer -m normalized_cycles profiles/gdn_decode.hatchet
+	@echo "\n=== Scope-level breakdown (normalized cycles) ==="
+	# script -q wraps in a pseudo-TTY so proton-viewer keeps colors through tee
+	script -q -c "proton-viewer -m normalized_cycles profiles/gdn_decode.hatchet" /dev/null | tee profiles/gdn_decode_scopes.txt
+	python scripts/profile_proton.py --pcsampling --iters 10
+	@echo "\n=== Line-by-line breakdown (PC sampling %) ==="
+	script -q -c "proton-viewer -m num_samples/% profiles/gdn_decode_lines.hatchet -i profile" /dev/null | tee profiles/gdn_decode_lines.txt
 
 clean-triton-cache:
 	rm -rf ~/.triton/cache

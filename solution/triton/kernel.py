@@ -235,17 +235,25 @@ def fused_recurrent_gated_delta_rule_fwd_kernel(
 
     b_q = b_q * scale  # [BK] — scaled query
 
+    if PROFILE:
+        pl.enter_scope("load_decay")
     # Compute gates from raw inputs (fused — avoids separate PyTorch kernels)
     b_A = tl.load(A_log + i_hv).to(tl.float32)  # scalar f32 — log base decay
     b_a = tl.load(a_gate + i_n * HV + i_hv).to(tl.float32)  # scalar bf16→f32
     b_dt = tl.load(dt_bias + i_hv).to(tl.float32)  # scalar f32 — decay bias
     b_b = tl.load(b_gate + i_n * HV + i_hv).to(tl.float32)  # scalar bf16→f32
+    if PROFILE:
+        pl.exit_scope("load_decay")
 
+    if PROFILE:
+        pl.enter_scope("compute_decay")
     x = b_a + b_dt
     sp = tl.where(x > 20.0, x, tl.log(1.0 + tl.exp(x)))  # softplus
-    b_h *= tl.exp(
-        -tl.exp(b_A) * sp
-    )  # decay state: g = exp(-exp(A_log) * softplus(a + dt_bias))
+    # decay state: g = exp(-exp(A_log) * softplus(a + dt_bias))
+    b_h *= tl.exp(-tl.exp(b_A) * sp)
+    if PROFILE:
+        pl.exit_scope("compute_decay")
+
     b_beta = 1.0 / (1.0 + tl.exp(-b_b))  # sigmoid(b) — update gate
 
     if PROFILE:
@@ -259,8 +267,13 @@ def fused_recurrent_gated_delta_rule_fwd_kernel(
     if PROFILE:
         pl.exit_scope("state_update")
 
+    if PROFILE:
+        pl.enter_scope("compute_output")
     # q@S: sum([BK, BV] * [BK, 1], dim=0) -> [BV]    (matvec: read output from state)
     b_o = tl.sum(b_h * b_q[:, None], 0)
+    if PROFILE:
+        pl.exit_scope("compute_output")
+
     if PROFILE:
         pl.enter_scope("store_output")
     tl.store(p_o, b_o.to(p_o.dtype.element_ty), mask=mask_v)  # [BV] -> GMEM
