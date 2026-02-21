@@ -117,5 +117,8 @@ nvbench-fla:
 nvbench-fi:
 	python scripts/bench_nvbench.py --algo=fi-baseline
 
+nvbench-all:
+	python scripts/bench_nvbench.py --algo=all
+
 proton-example:
 	cd timeline && TRITON_ALWAYS_COMPILE=1 TRITON_KERNEL_DUMP=1 TRITON_DUMP_DIR=ttgir_dump python example_dsl.py
