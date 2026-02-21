@@ -29,6 +29,7 @@ ALGO_ENTRY_POINTS = {
     "fla-recurrent": "kernel.py::kernel_fla_recurrent",
     "fla-tma": "kernel.py::kernel_fla_tma",
     "pt-reference": "kernel.py::kernel_pt_reference",
+    "fi-baseline": "kernel.py::kernel_fi_baseline",
 }
 
 app = modal.App("flashinfer-bench")

@@ -5,6 +5,7 @@ import torch.nn.functional as F
 import triton
 import triton.language as tl
 import triton.profiler.language as pl
+from flashinfer.gdn_decode import gated_delta_rule_decode_pretranspose
 
 # Allocator for Triton kernels that need scratch memory (TMA on Blackwell)
 triton.set_allocator(
@@ -106,6 +107,21 @@ def kernel_pt_reference(q, k, v, state, A_log, a, dt_bias, b, scale, output, new
             output[b_idx, 0, h_idx] = (scale * (q_h @ h_state)).to(torch.bfloat16)  # [V] into [B,1,H,V]
             new_state[b_idx, h_idx] = h_state.transpose(-1, -2)  # [K,V] -> [V,K] back to storage layout
     # fmt: on
+
+
+@torch.no_grad()
+def kernel_fi_baseline(q, k, v, state, A_log, a, dt_bias, b, scale, output, new_state):
+    """
+    FlashInfer's official CuTe-DSL GDN decode kernel (pretranspose / K-last layout).
+    FI updates state in-place. The benchmark clones all args each iteration, so state
+    is already a fresh copy. We alias new_state → state's storage (zero-copy) so the
+    framework reads back the mutated state via new_state.
+    """
+    new_state.set_(state.untyped_storage(), state.storage_offset(), state.shape, state.stride())
+    gated_delta_rule_decode_pretranspose(
+        q, k, v, state, A_log, a, dt_bias, b,
+        scale=scale, output=output, use_qk_l2norm=False,
+    )
 
 
 @torch.no_grad()

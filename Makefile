@@ -22,6 +22,9 @@ bench-pt:
 bench-tma:
 	python scripts/run_local.py --algo=fla-tma -n $(N)
 
+bench-fi:
+	python scripts/run_local.py --algo=fi-baseline -n $(N)
+
 modal-fla:
 	ALGO=fla-recurrent modal run scripts/run_modal.py
 
