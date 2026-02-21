@@ -6,9 +6,9 @@ import os
 import re
 import subprocess
 from datetime import date
-from pathlib import Path
 
-PROJECT_ROOT = Path(__file__).parent.parent
+from .shared import PROJECT_ROOT
+
 CSV_PATH = PROJECT_ROOT / "findings" / "speedups.csv"
 
 # Algo name -> log file prefix (matches Makefile bench-*-all targets)
@@ -19,7 +19,7 @@ ALGO_LOG_PREFIX = {
 }
 
 
-def parse_speedups(log_path: Path) -> list[float]:
+def parse_speedups(log_path) -> list[float]:
     """Extract speedup values from a benchmark log file."""
     if not log_path.exists():
         return []

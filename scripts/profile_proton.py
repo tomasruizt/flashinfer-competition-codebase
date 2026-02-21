@@ -2,9 +2,9 @@
 Profile GDN decode kernel with Proton.
 
 Usage:
-    python scripts/profile_proton.py                  # timeline trace (instrumentation)
-    python scripts/profile_proton.py --op-measure     # op measurement (instrumentation)
-    python scripts/profile_proton.py --pcsampling     # line-by-line PC sampling
+    python -m scripts.profile_proton                  # timeline trace (instrumentation)
+    python -m scripts.profile_proton --op-measure     # op measurement (instrumentation)
+    python -m scripts.profile_proton --pcsampling     # line-by-line PC sampling
 
 View results:
     Timeline:    chrome://tracing -> load profiles/gdn_decode.chrome_trace
@@ -14,8 +14,6 @@ View results:
 
 import argparse
 import os
-import sys
-from pathlib import Path
 
 import torch
 import torch._dynamo
@@ -23,8 +21,7 @@ import triton.profiler as proton
 from flashinfer_bench.bench.utils import gen_inputs, load_safetensors
 from flashinfer_bench.data import TraceSet
 
-PROJECT_ROOT = Path(__file__).parent.parent
-sys.path.insert(0, str(PROJECT_ROOT))
+from .shared import PROJECT_ROOT
 
 DEF_NAME = "gdn_decode_qk4_v8_d128_k_last"
 

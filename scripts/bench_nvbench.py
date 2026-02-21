@@ -5,26 +5,20 @@ Validates our timing methodology against an independent, NVIDIA-standard benchma
 NVBench uses CUDA events on a dedicated stream with statistical convergence criteria.
 
 Usage:
-    python scripts/bench_nvbench.py --algo=fla-recurrent
-    python scripts/bench_nvbench.py --algo=fi-baseline
-    python scripts/bench_nvbench.py --algo=all
+    python -m scripts.bench_nvbench --algo=fla-recurrent
+    python -m scripts.bench_nvbench --algo=fi-baseline
+    python -m scripts.bench_nvbench --algo=all
 """
-
-import sys
-from pathlib import Path
 
 import cuda.bench as bench
 import torch
 
-PROJECT_ROOT = Path(__file__).parent.parent
-sys.path.insert(0, str(PROJECT_ROOT))
-
-from profile_proton import load_workload_tensors
 from solution.triton.kernel import (
     kernel_fi_baseline,
     kernel_fla_recurrent,
     kernel_fla_tma,
 )
+from .profile_proton import load_workload_tensors
 
 
 def as_torch_stream(cs: bench.CudaStream) -> torch.cuda.ExternalStream:

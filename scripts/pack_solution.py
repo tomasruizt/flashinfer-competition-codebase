@@ -8,11 +8,6 @@ Reads configuration from config.toml and packs the appropriate source files
 import sys
 from pathlib import Path
 
-# Add project root and scripts/ to path for imports
-PROJECT_ROOT = Path(__file__).parent.parent
-sys.path.insert(0, str(PROJECT_ROOT))
-sys.path.insert(0, str(Path(__file__).parent))
-
 try:
     import tomllib
 except ImportError:
@@ -20,33 +15,8 @@ except ImportError:
 
 from flashinfer_bench import BuildSpec
 from flashinfer_bench.agents import pack_solution_from_files
-from run_modal import ALGO_ENTRY_POINTS
 
-
-def parse_args():
-    """Parse command-line arguments common to all scripts."""
-    import argparse
-
-    parser = argparse.ArgumentParser(description="Pack and benchmark GDN kernel")
-    parser.add_argument(
-        "--algo",
-        choices=list(ALGO_ENTRY_POINTS.keys()),
-        default="fla-recurrent",
-        help="Algorithm to benchmark (default: fla-recurrent)",
-    )
-    parser.add_argument(
-        "-o", "--output",
-        type=Path,
-        default=None,
-        help="Output path for solution.json (default: ./solution.json)"
-    )
-    parser.add_argument(
-        "-n", "--num-workloads",
-        type=int,
-        default=0,
-        help="Number of workloads to run (default: 0 = all)",
-    )
-    return parser.parse_args()
+from .shared import ALGO_ENTRY_POINTS, PROJECT_ROOT, parse_args
 
 
 def load_config() -> dict:

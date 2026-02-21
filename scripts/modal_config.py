@@ -1,11 +1,19 @@
-"""
-Shared Modal configuration, re-exported from run_modal.py.
+"""Shared Modal infrastructure: image, volume, and constants."""
 
-Only used by scripts that mount scripts/ into the Modal image
-(e.g. bench_nvbench_modal.py). Scripts that don't mount scripts/
-(e.g. run_modal.py) define their config inline.
-"""
+import modal
 
-from run_modal import ALGO_ENTRY_POINTS, TRACE_SET_PATH, image, trace_volume
+trace_volume = modal.Volume.from_name("flashinfer-trace", create_if_missing=True)
+TRACE_SET_PATH = "/data"
 
-__all__ = ["ALGO_ENTRY_POINTS", "TRACE_SET_PATH", "image", "trace_volume"]
+image = (
+    modal.Image.debian_slim(python_version="3.12")
+    .pip_install(
+        "flashinfer-bench",
+        "torch",
+        "triton",
+        "numpy",
+        "flash-linear-attention",
+        "flashinfer-python",
+    )
+    .env({"TRITON_PRINT_AUTOTUNING": "1"})
+)

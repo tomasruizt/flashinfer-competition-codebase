@@ -152,8 +152,8 @@ Each kernel is a separate definition, needs a separate `config.toml` definition 
 
 ### Entry point dispatch via `--algo` flag
 ```bash
-python scripts/run_local.py --algo=fla-recurrent    # default
-python scripts/run_local.py --algo=pt-reference      # compiled PyTorch reference
+python -m scripts.run_local --algo=fla-recurrent    # default
+python -m scripts.run_local --algo=pt-reference      # compiled PyTorch reference
 ```
 - Each algo maps to a separate DPS entry point function in `kernel.py` (e.g. `kernel_fla_recurrent`, `kernel_pt_reference`)
 - `run_local.py` passes the entry point string to `pack_solution(entry_point=...)`, overriding config.toml
@@ -272,7 +272,7 @@ make nvbench-fi             # NVBench benchmark (fi-baseline)
 make clean-triton-cache     # clear ~/.triton/cache
 ```
 - Env var overrides: `NUM_WORKLOADS=3 make modal-fla` (limit workloads), `ALGO=... make modal-fla`
-- `-n 3` flag on local scripts: `python scripts/run_local.py --algo=fla-recurrent -n 3`
+- `-n 3` flag on local scripts: `python -m scripts.run_local --algo=fla-recurrent -n 3`
 - Local GPU: RTX 3090 (Ampere SM86) — cannot run Hopper-only features (TMA, warpgroup MMA, Gluon matmul examples)
 
 ### Log file naming convention

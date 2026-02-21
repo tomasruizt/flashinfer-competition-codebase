@@ -5,16 +5,11 @@ Automatically packs the solution from source files and runs benchmarks locally.
 """
 
 import os
-import sys
-from pathlib import Path
-
-# Add project root to path for imports
-PROJECT_ROOT = Path(__file__).parent.parent
-sys.path.insert(0, str(PROJECT_ROOT))
 
 from flashinfer_bench import Benchmark, BenchmarkConfig, Solution, TraceSet
-from scripts.pack_solution import pack_solution, parse_args
-from scripts.run_modal import ALGO_ENTRY_POINTS
+
+from .pack_solution import pack_solution
+from .shared import ALGO_ENTRY_POINTS, PROJECT_ROOT, parse_args
 
 
 def get_trace_set_path() -> str:

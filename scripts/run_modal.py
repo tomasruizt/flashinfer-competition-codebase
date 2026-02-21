@@ -10,47 +10,20 @@ Setup (one-time):
     modal volume put flashinfer-trace /path/to/flashinfer-trace/
 
 Usage:
-    ALGO=fla-recurrent modal run scripts/run_modal.py
-    ALGO=pt-reference modal run scripts/run_modal.py
+    ALGO=fla-recurrent modal run -m scripts.run_modal
+    ALGO=pt-reference modal run -m scripts.run_modal
 """
 
 import os
-import sys
-from pathlib import Path
-
-# Add project root and scripts/ to path for imports
-PROJECT_ROOT = Path(__file__).parent.parent
-sys.path.insert(0, str(PROJECT_ROOT))
-sys.path.insert(0, str(Path(__file__).parent))
 
 import modal
 from flashinfer_bench import Benchmark, BenchmarkConfig, Solution, TraceSet
 
-ALGO_ENTRY_POINTS = {
-    "fla-recurrent": "kernel.py::kernel_fla_recurrent",
-    "fla-tma": "kernel.py::kernel_fla_tma",
-    "pt-reference": "kernel.py::kernel_pt_reference",
-    "fi-baseline": "kernel.py::kernel_fi_baseline",
-}
+from .modal_config import TRACE_SET_PATH, image, trace_volume
+from .pack_solution import pack_solution
+from .shared import ALGO_ENTRY_POINTS
 
 app = modal.App("flashinfer-bench")
-
-trace_volume = modal.Volume.from_name("flashinfer-trace", create_if_missing=True)
-TRACE_SET_PATH = "/data"
-
-image = (
-    modal.Image.debian_slim(python_version="3.12")
-    .pip_install(
-        "flashinfer-bench",
-        "torch",
-        "triton",
-        "numpy",
-        "flash-linear-attention",
-        "flashinfer-python",
-    )
-    .env({"TRITON_PRINT_AUTOTUNING": "1"})
-)
-
 
 LOG_PATH = "/data/logs"
 
@@ -147,8 +120,6 @@ num_workloads = int(os.getenv("NUM_WORKLOADS", "0"))
 @app.local_entrypoint()
 def main():
     """Pack solution and run benchmark on Modal."""
-    from pack_solution import pack_solution
-
     entry_point = ALGO_ENTRY_POINTS[algo]
     print(f"Algorithm: {algo} (entry_point: {entry_point})")
 

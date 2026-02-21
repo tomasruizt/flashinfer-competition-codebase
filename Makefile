@@ -14,28 +14,28 @@ SUDO=
 NCU_RESULTS_DIR := profiles/ncu
 
 bench-fla:
-	python scripts/run_local.py --algo=fla-recurrent -n $(N)
+	python -m scripts.run_local --algo=fla-recurrent -n $(N)
 
 bench-pt:
-	python scripts/run_local.py --algo=pt-reference -n $(N)
+	python -m scripts.run_local --algo=pt-reference -n $(N)
 
 bench-tma:
-	python scripts/run_local.py --algo=fla-tma -n $(N)
+	python -m scripts.run_local --algo=fla-tma -n $(N)
 
 bench-fi:
-	python scripts/run_local.py --algo=fi-baseline -n $(N)
+	python -m scripts.run_local --algo=fi-baseline -n $(N)
 
 modal-fla:
-	ALGO=fla-recurrent modal run scripts/run_modal.py
+	ALGO=fla-recurrent modal run -m scripts.run_modal
 
 modal-tma:
-	ALGO=fla-tma modal run scripts/run_modal.py
+	ALGO=fla-tma modal run -m scripts.run_modal
 
 modal-pt:
-	ALGO=pt-reference modal run scripts/run_modal.py
+	ALGO=pt-reference modal run -m scripts.run_modal
 
 modal-fi:
-	ALGO=fi-baseline modal run scripts/run_modal.py
+	ALGO=fi-baseline modal run -m scripts.run_modal
 
 COMMENT ?=
 
@@ -50,7 +50,7 @@ bench-tma-all:
 	$(MAKE) modal-tma 2>&1 | tee logs/bench-tma-modal.log
 
 document-speedups:
-	python scripts/log_speedups.py --algo=$(ALGO) "$(COMMENT)"
+	python -m scripts.log_speedups --algo=$(ALGO) "$(COMMENT)"
 
 modal-get-logs:
 	mkdir -p logs/fib-bench-modal
@@ -60,12 +60,12 @@ modal-clear-logs:
 	modal volume rm -r flashinfer-trace logs/
 
 proton-fla:
-	python scripts/profile_proton.py
-	python scripts/profile_proton.py --op-measure
+	python -m scripts.profile_proton
+	python -m scripts.profile_proton --op-measure
 	@echo "\n=== Scope-level breakdown (normalized cycles) ==="
 	# script -q wraps in a pseudo-TTY so proton-viewer keeps colors through tee
 	script -q -c "proton-viewer -m normalized_cycles profiles/gdn_decode.hatchet" /dev/null | tee profiles/gdn_decode_scopes.txt
-	python scripts/profile_proton.py --pcsampling --iters 10
+	python -m scripts.profile_proton --pcsampling --iters 10
 	@echo "\n=== Line-by-line breakdown (PC sampling %) ==="
 	script -q -c "proton-viewer -m num_samples/% profiles/gdn_decode_lines.hatchet -i profile" /dev/null | tee profiles/gdn_decode_lines.txt
 
@@ -82,7 +82,7 @@ ncu-fla:
 		--kernel-name fused_recurrent_gated_delta_rule_fwd_kernel \
 		--launch-skip 3 --launch-count 1 \
 		-fo $(NCU_RESULTS_DIR)/gdn-decode-fla \
-		$(PYTHON) scripts/profile_ncu.py --algo=fla-recurrent
+		$(PYTHON) -m scripts.profile_ncu --algo=fla-recurrent
 
 ncu-fi:
 	mkdir -p $(NCU_RESULTS_DIR)
@@ -91,7 +91,7 @@ ncu-fi:
 		--kernel-name regex:kernel_cutlass_gdn_decode \
 		--launch-skip 3 --launch-count 1 \
 		-fo $(NCU_RESULTS_DIR)/gdn-decode-fi \
-		$(PYTHON) scripts/profile_ncu.py --algo=fi-baseline
+		$(PYTHON) -m scripts.profile_ncu --algo=fi-baseline
 
 ncu-export-fi:
 	mkdir -p $(NCU_TXT_DIR)
@@ -99,7 +99,7 @@ ncu-export-fi:
 		--import-source yes \
 		--kernel-name regex:kernel_cutlass_gdn_decode \
 		--launch-skip 3 --launch-count 1 \
-		$(PYTHON) scripts/profile_ncu.py --algo=fi-baseline > $(NCU_TXT_DIR)/gdn-decode-fi.txt
+		$(PYTHON) -m scripts.profile_ncu --algo=fi-baseline > $(NCU_TXT_DIR)/gdn-decode-fi.txt
 
 NCU_TXT_DIR := profiles/ncu-txt
 
@@ -109,25 +109,25 @@ ncu-export-fla:
 		--import-source yes \
 		--kernel-name fused_recurrent_gated_delta_rule_fwd_kernel \
 		--launch-skip 3 --launch-count 1 \
-		$(PYTHON) scripts/profile_ncu.py --algo=fla-recurrent > $(NCU_TXT_DIR)/gdn-decode-fla.txt
+		$(PYTHON) -m scripts.profile_ncu --algo=fla-recurrent > $(NCU_TXT_DIR)/gdn-decode-fla.txt
 
 nvbench-fla:
-	python scripts/bench_nvbench.py --algo=fla-recurrent
+	python -m scripts.bench_nvbench --algo=fla-recurrent
 
 nvbench-fi:
-	python scripts/bench_nvbench.py --algo=fi-baseline
+	python -m scripts.bench_nvbench --algo=fi-baseline
 
 nvbench-all:
-	python scripts/bench_nvbench.py --algo=all
+	python -m scripts.bench_nvbench --algo=all
 
 nvbench-modal-fla:
-	ALGO=fla-recurrent modal run scripts/bench_nvbench_modal.py
+	ALGO=fla-recurrent modal run -m scripts.bench_nvbench_modal
 
 nvbench-modal-fi:
-	ALGO=fi-baseline modal run scripts/bench_nvbench_modal.py
+	ALGO=fi-baseline modal run -m scripts.bench_nvbench_modal
 
 nvbench-modal-all:
-	ALGO=all modal run scripts/bench_nvbench_modal.py
+	ALGO=all modal run -m scripts.bench_nvbench_modal
 
 proton-example:
 	cd timeline && TRITON_ALWAYS_COMPILE=1 TRITON_KERNEL_DUMP=1 TRITON_DUMP_DIR=ttgir_dump python example_dsl.py

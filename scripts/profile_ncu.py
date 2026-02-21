@@ -2,26 +2,19 @@
 Profile GDN decode kernel with NVIDIA Nsight Compute (ncu).
 
 This script is meant to be launched by ncu, not run directly:
-    sudo ncu --set full ... python scripts/profile_ncu.py
+    sudo ncu --set full ... python -m scripts.profile_ncu
 
 See `make ncu-fla` for the full command.
 """
 
-import sys
-from pathlib import Path
-
 import torch
-
-
-PROJECT_ROOT = Path(__file__).parent.parent
-sys.path.insert(0, str(PROJECT_ROOT))
 
 from solution.triton.kernel import (
     kernel_fla_recurrent,
     kernel_fla_tma,
     kernel_fi_baseline,
 )
-from scripts.profile_proton import load_workload_tensors
+from .profile_proton import load_workload_tensors
 
 
 def main():

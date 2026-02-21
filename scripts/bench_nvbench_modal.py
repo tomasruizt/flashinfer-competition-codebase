@@ -1,26 +1,21 @@
 """
 NVBench benchmark on Modal B200 GPUs.
 
-Reuses the shared image from modal_config.py and the benchmark logic
-from bench_nvbench.py. Mounts solution/ and scripts/ so imports work
+Reuses the shared image from modal_config and the benchmark logic
+from bench_nvbench. Mounts solution/ and scripts/ so imports work
 on the remote.
 
 Usage:
-    ALGO=fla-recurrent modal run scripts/bench_nvbench_modal.py
-    ALGO=all modal run scripts/bench_nvbench_modal.py
+    ALGO=fla-recurrent modal run -m scripts.bench_nvbench_modal
+    ALGO=all modal run -m scripts.bench_nvbench_modal
 """
 
 import os
 import sys
-from pathlib import Path
-
-# Make sibling scripts importable (locally and on Modal remote)
-sys.path.insert(0, str(Path(__file__).parent))
-sys.path.insert(0, "/root/scripts")
 
 import modal
 
-from modal_config import TRACE_SET_PATH, image as base_image, trace_volume
+from .modal_config import TRACE_SET_PATH, image as base_image, trace_volume
 
 app = modal.App("nvbench-gdn")
 
@@ -45,12 +40,13 @@ ALGOS_AVAILABLE = ["fla-recurrent", "fi-baseline", "fla-tma"]
     retries=2,
 )
 def run_nvbench(algo_names: list[str]):
+    # Inside the Modal container, scripts/ and solution/ are mounted at /root/.
+    # Add /root to sys.path so `scripts` and `solution` packages are importable.
     sys.path.insert(0, "/root")
-    sys.path.insert(0, "/root/scripts")
 
     import cuda.bench as bench
 
-    from bench_nvbench import gdn_decode
+    from scripts.bench_nvbench import gdn_decode
 
     b = bench.register(gdn_decode)
     b.add_string_axis("Algo", algo_names)

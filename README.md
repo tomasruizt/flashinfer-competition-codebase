@@ -95,7 +95,7 @@ Edit `solution/cuda/kernel.cu` and `solution/cuda/binding.py` with your implemen
 Generate `solution.json` from your source files:
 
 ```bash
-python scripts/pack_solution.py
+python -m scripts.pack_solution
 ```
 
 ### Run Local Benchmarks
@@ -103,7 +103,7 @@ python scripts/pack_solution.py
 Test your solution on your local GPU:
 
 ```bash
-python scripts/run_local.py
+python -m scripts.run_local
 ```
 
 Requires: Local CUDA-capable GPU and `FIB_DATASET_PATH` environment variable.
@@ -123,7 +123,7 @@ modal volume put flashinfer-trace /path/to/flashinfer-trace
 **Run benchmark:**
 
 ```bash
-modal run scripts/run_modal.py
+modal run -m scripts.run_modal
 ```
 
 ## Submission
@@ -131,7 +131,7 @@ modal run scripts/run_modal.py
 To submit your solution for evaluation:
 
 1. Ensure your implementation is complete and tested
-2. Run `python scripts/pack_solution.py` to generate `solution.json`
+2. Run `python -m scripts.pack_solution` to generate `solution.json`
 3. Commit and push your changes
 4. Tag your commit for evaluation (e.g., `git tag submission-v1`)
 
