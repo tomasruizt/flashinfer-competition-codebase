@@ -263,14 +263,30 @@ The sync was unnecessary because CUDA streams are ordered. Operations enqueued o
 
 | Kernel | NCU (pure GPU) | NVBench (`cuda-bench`) | flashinfer-bench (fixed) |
 |--------|---------------|----------------------|--------------------------|
-| fla-recurrent | 3.84 µs | 5.14 µs | 4.3-4.5 µs |
-| fi-baseline | 4.50 µs | 5.43 µs | 4.7-4.8 µs |
+| fla-recurrent | 3.84 µs | 5.14 µs | 4.2-4.6 µs |
+| fi-baseline | 4.50 µs | 5.43 µs | 4.7-5.0 µs |
 
 All three agree within ~1 µs. The old flashinfer-bench reported ~51 µs (fla) and ~43 µs (fi).
 
 NVBench (`cuda-bench`, NVIDIA's official kernel benchmarking tool) separately reports **CPU Time** (~54-76 µs) and **GPU Time** (~5 µs), confirming the ~50 µs gap was entirely CPU dispatch overhead. NVBench ran ~97K samples with statistical convergence, L2 cache flushing (`batched=False`), and GPU throttle detection.
 
 Script: `scripts/bench_nvbench.py`, targets: `make nvbench-fla`, `make nvbench-fi`.
+
+### NVBench on B200 (Modal)
+
+| Kernel | GPU Time | Samples | BW (achieved) | BW utilization |
+|--------|----------|---------|---------------|----------------|
+| fla-recurrent | 7.1 µs | 70,400 | 148.5 GB/s | 1.94% |
+| fi-baseline | 8.2 µs | 61,280 | 129.2 GB/s | 1.68% |
+| fla-tma | 13.6 µs | 36,816 | 77.7 GB/s | 1.01% |
+
+B200 specs: 148 SMs, 7672 GB/s peak bandwidth, 182 GB HBM3e.
+
+The kernel is even more latency-bound on B200 than RTX 3090: <2% bandwidth utilization (vs 15.6% on RTX 3090). The massive bandwidth (7.7 TB/s) goes largely unused because the total data volume (~1 MB) is too small. The 7.1 µs GPU time for fla-recurrent is ~1.85x slower than RTX 3090's 3.84 µs (NCU), despite B200 having ~8x the bandwidth. This confirms the kernel is purely latency-bound on both GPUs.
+
+The fla-tma variant (Hopper/Blackwell TMA + warp-specialization) is ~1.9x slower than fla-recurrent on B200. TMA descriptor setup overhead likely dominates for such a small data transfer. TMA's benefits (async copies, hardware address generation) only pay off for larger data volumes where they can hide more memory latency.
+
+Log: `logs/nvbench-modal-all.log`.
 
 ### How NVBench solves the GPU bubble (blocking kernel technique)
 
@@ -326,8 +342,8 @@ The correct pattern (single sync outside the loop) already exists in two related
 
 | Kernel | Old speedup (vs ~1.2 ms reference) | New speedup |
 |--------|-----------------------------------|-------------|
-| fla-recurrent | ~29x | ~282x |
-| fi-baseline | ~35x | ~261x |
+| fla-recurrent | ~29x | ~280x |
+| fi-baseline | ~35x | ~250x |
 
 The reference implementation time (~1.2 ms) is unaffected since it's dominated by actual compute, not launch overhead.
 

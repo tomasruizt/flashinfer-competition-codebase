@@ -11,9 +11,25 @@
 - `config.toml` — Solution metadata and build config. `definition` must match the exact definition name (e.g. `gdn_decode_qk4_v8_d128_k_last`), not the track name.
 - `solution/triton/kernel.py` — Triton/Python kernel implementation. Entry point is a regular Python function (not necessarily `@triton.jit`).
 - `solution/cuda/kernel.cu` + `binding.py` — CUDA alternative.
-- `scripts/run_local.py` — Local benchmark runner.
-- `scripts/run_modal.py` — Cloud benchmark (B200 GPUs via Modal).
-- `scripts/pack_solution.py` — Packs solution into `solution.json`.
+- `scripts/` — Python package (has `__init__.py`). All scripts run as modules: `python -m scripts.X`.
+  - `shared.py` — Shared constants: `ALGO_ENTRY_POINTS`, `PROJECT_ROOT`, `parse_args()`.
+  - `pack_solution.py` — Packs solution into `solution.json`.
+  - `run_local.py` — Local benchmark runner.
+  - `run_modal.py` — Cloud benchmark (B200 GPUs via Modal).
+  - `modal_config.py` — Shared Modal infrastructure (image, volume, `TRACE_SET_PATH`).
+  - `profile_proton.py` — Proton intra-kernel profiling. Also exports `load_workload_tensors()`.
+  - `profile_ncu.py` — NCU profiling (launched by `ncu`, not run directly).
+  - `bench_nvbench.py` — NVBench timing validation.
+  - `bench_nvbench_modal.py` — NVBench on Modal B200.
+  - `log_speedups.py` — Parse bench logs into `findings/speedups.csv`.
+
+### Import conventions
+- `scripts/` and `solution/` are both Python packages (have `__init__.py`).
+- All scripts are invoked as modules: `python -m scripts.run_local`, `modal run -m scripts.run_modal`.
+- Within `scripts/`, use **relative imports**: `from .shared import ALGO_ENTRY_POINTS`.
+- For kernel imports: `from solution.triton.kernel import ...` (works because `-m` adds CWD to sys.path).
+- No `sys.path` manipulation, except inside Modal remote functions (container mounts at `/root/`).
+- To add a new algo: add one entry to `ALGO_ENTRY_POINTS` in `shared.py`, add one wrapper function in `kernel.py`.
 
 ## Environment
 - Venv: `.venv/` in project root
@@ -174,15 +190,18 @@ python -m scripts.run_local --algo=pt-reference      # compiled PyTorch referenc
 | ----------------------- | -------- | -------------------- |
 | pt-reference (eager)    | ~1.4 ms  | ~1.0x                |
 | pt-reference (compiled) | ~0.73 ms | ~1.8x                |
-| fla-recurrent           | ~4.4 µs  | ~282x                |
-| fi-baseline             | ~4.7 µs  | ~261x                |
+| fla-recurrent           | ~4.3 µs  | ~280x                |
+| fi-baseline             | ~4.8 µs  | ~250x                |
+| fla-tma                 | ~7.5 µs  | ~161x                |
 
 ### Performance (B200 via Modal)
-| Algo          | Latency   | Speedup vs reference |
-| ------------- | --------- | -------------------- |
-| fla-recurrent | ~0.037 ms | ~32x                 |
-| fla-tma       | ~0.041 ms | ~31x                 |
-| fi-baseline   | ~0.017 ms | ~46.5x               |
+| Algo          | FI-bench  | NVBench  | Speedup vs reference |
+| ------------- | --------- | -------- | -------------------- |
+| fla-recurrent | ~0.037 ms | 7.1 µs   | ~32x                 |
+| fi-baseline   | ~0.017 ms | 8.2 µs   | ~46.5x               |
+| fla-tma       | ~0.041 ms | 13.6 µs  | ~31x                 |
+
+NVBench confirms the kernel is latency-bound on B200: <2% of 7.7 TB/s bandwidth utilized. See `findings/research.md` "NVBench on B200".
 
 ## Modal Deployment Notes
 - The Modal image must install ALL Python packages that `kernel.py` imports at the top level
