@@ -272,21 +272,27 @@ NVBench (`cuda-bench`, NVIDIA's official kernel benchmarking tool) separately re
 
 Script: `scripts/bench_nvbench.py`, targets: `make nvbench-fla`, `make nvbench-fi`.
 
-### NVBench on B200 (Modal)
+### NVBench: B200 vs RTX 3090
 
-| Kernel | GPU Time | Samples | BW (achieved) | BW utilization |
-|--------|----------|---------|---------------|----------------|
-| fla-recurrent | 7.1 µs | 70,400 | 148.5 GB/s | 1.94% |
-| fi-baseline | 8.2 µs | 61,280 | 129.2 GB/s | 1.68% |
-| fla-tma | 13.6 µs | 36,816 | 77.7 GB/s | 1.01% |
+| Kernel | RTX 3090 | B200 | B200/3090 ratio |
+|--------|----------|------|-----------------|
+| fla-recurrent | 5.3 µs | 7.1 µs | 1.34x slower |
+| fi-baseline | 5.5 µs | 8.2 µs | 1.49x slower |
+| fla-tma | 9.0 µs | 13.6 µs | 1.50x slower |
 
 B200 specs: 148 SMs, 7672 GB/s peak bandwidth, 182 GB HBM3e.
+RTX 3090 specs: 82 SMs, 936 GB/s peak bandwidth, 24 GB GDDR6X.
 
-The kernel is even more latency-bound on B200 than RTX 3090: <2% bandwidth utilization (vs 15.6% on RTX 3090). The massive bandwidth (7.7 TB/s) goes largely unused because the total data volume (~1 MB) is too small. The 7.1 µs GPU time for fla-recurrent is ~1.85x slower than RTX 3090's 3.84 µs (NCU), despite B200 having ~8x the bandwidth. This confirms the kernel is purely latency-bound on both GPUs.
+**B200 is 1.3-1.5x slower than RTX 3090** despite 8x the bandwidth and 1.8x the SMs. The kernel is latency-bound (~1 MB total data), so bandwidth is irrelevant.
 
-The fla-tma variant (Hopper/Blackwell TMA + warp-specialization) is ~1.9x slower than fla-recurrent on B200. TMA descriptor setup overhead likely dominates for such a small data transfer. TMA's benefits (async copies, hardware address generation) only pay off for larger data volumes where they can hide more memory latency.
+Possible explanations (unverified, no B200 NCU profile yet):
+- **DRAM latency**: Chips and Cheese reports B200 has "higher VRAM latency than the MI300X, as well as the older H100 and A100" ([source](https://chipsandcheese.com/p/nvidias-b200-keeping-the-cuda-juggernaut)). RTX 3090 GDDR6X is estimated at ~250 ns average ([NVIDIA Forums](https://forums.developer.nvidia.com/t/ddr-latency-of-rtx3090/278865)). Exact HBM3e numbers are not publicly available.
+- **Worse occupancy**: 128 CTAs on 148 SMs (0.86/SM) vs 82 SMs (1.56/SM). Fewer warps to hide stalls.
+- **ECC**: B200 has ECC enabled, RTX 3090 does not. Minor per-access overhead.
 
-Log: `logs/nvbench-modal-all.log`.
+The fla-tma variant (TMA + warp-specialization) is ~1.9x slower than fla-recurrent on B200. TMA descriptor setup overhead likely dominates for such a small data transfer. TMA's benefits (async copies, hardware address generation) only pay off for larger data volumes.
+
+Logs: `logs/nvbench-all-local.log`, `logs/nvbench-all-modal.log`.
 
 ### How NVBench solves the GPU bubble (blocking kernel technique)
 
