@@ -3,7 +3,7 @@
 #   NUM_WORKLOADS=3 make modal-fla
 # TRITON_PRINT_AUTOTUNING is always on (logs go to logs/fib-bench/)
 
-.PHONY: bench-fla bench-pt bench-tma modal-fla modal-pt modal-tma modal-get-logs modal-clear-logs bench-fla-all bench-tma-all clean-empty-logs proton-fla proton-example clean-triton-cache document-speedups ncu-fla ncu-fla ncu-export-fla nvbench-fla nvbench-fi
+.PHONY: bench-fla bench-pt bench-tma modal-fla modal-pt modal-tma modal-get-logs modal-clear-logs bench-fla-all bench-tma-all clean-empty-logs proton-fla proton-example clean-triton-cache document-speedups ncu-fla ncu-fla ncu-export-fla nvbench-fla nvbench-fi nvbench-all nvbench-modal-fla nvbench-modal-fi nvbench-modal-all
 
 export TRITON_PRINT_AUTOTUNING=1
 N ?= 0
@@ -119,6 +119,15 @@ nvbench-fi:
 
 nvbench-all:
 	python scripts/bench_nvbench.py --algo=all
+
+nvbench-modal-fla:
+	ALGO=fla-recurrent modal run scripts/bench_nvbench_modal.py
+
+nvbench-modal-fi:
+	ALGO=fi-baseline modal run scripts/bench_nvbench_modal.py
+
+nvbench-modal-all:
+	ALGO=all modal run scripts/bench_nvbench_modal.py
 
 proton-example:
 	cd timeline && TRITON_ALWAYS_COMPILE=1 TRITON_KERNEL_DUMP=1 TRITON_DUMP_DIR=ttgir_dump python example_dsl.py

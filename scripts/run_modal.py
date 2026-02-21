@@ -18,9 +18,10 @@ import os
 import sys
 from pathlib import Path
 
-# Add project root to path for imports
+# Add project root and scripts/ to path for imports
 PROJECT_ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
+sys.path.insert(0, str(Path(__file__).parent))
 
 import modal
 from flashinfer_bench import Benchmark, BenchmarkConfig, Solution, TraceSet
@@ -146,7 +147,7 @@ num_workloads = int(os.getenv("NUM_WORKLOADS", "0"))
 @app.local_entrypoint()
 def main():
     """Pack solution and run benchmark on Modal."""
-    from scripts.pack_solution import pack_solution
+    from pack_solution import pack_solution
 
     entry_point = ALGO_ENTRY_POINTS[algo]
     print(f"Algorithm: {algo} (entry_point: {entry_point})")

@@ -75,8 +75,8 @@ def main():
     print("Done.")
 
 
-def load_workload_tensors(device="cuda"):
-    trace_set = TraceSet.from_path()
+def load_workload_tensors(device="cuda", trace_set_path=None):
+    trace_set = TraceSet.from_path(trace_set_path)
     definition = trace_set.definitions[DEF_NAME]
     workload = trace_set.workloads[DEF_NAME][0].workload
 

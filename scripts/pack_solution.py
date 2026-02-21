@@ -8,9 +8,10 @@ Reads configuration from config.toml and packs the appropriate source files
 import sys
 from pathlib import Path
 
-# Add project root to path for imports
+# Add project root and scripts/ to path for imports
 PROJECT_ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
+sys.path.insert(0, str(Path(__file__).parent))
 
 try:
     import tomllib
@@ -19,7 +20,7 @@ except ImportError:
 
 from flashinfer_bench import BuildSpec
 from flashinfer_bench.agents import pack_solution_from_files
-from scripts.run_modal import ALGO_ENTRY_POINTS
+from run_modal import ALGO_ENTRY_POINTS
 
 
 def parse_args():
