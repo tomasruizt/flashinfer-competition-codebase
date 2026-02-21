@@ -143,3 +143,41 @@ This kernel targets the **exact same problem** as our competition entry (`gdn_de
 Our kernel is in the same ballpark (~3.84 μs on RTX 3090 vs ~3.5 μs on B200). The ~37 μs number from `run_local.py` includes Python dispatch overhead, L2 cache flushing, and tensor cloning — it is **not** the pure kernel time.
 
 Note: the benchmark framework (`run_local.py`) measures end-to-end latency including host overhead, which is what the competition scores on. The CuTe-DSL kernel uses `--enable-tvm-ffi` to minimize DLPack conversion overhead, which could give it an edge in end-to-end benchmarks despite similar raw kernel performance.
+
+## Our Benchmarks: fi-baseline algo
+
+We integrated the FI kernel as `--algo=fi-baseline` in `kernel.py`. Key integration details:
+- Calls `gated_delta_rule_decode_pretranspose()` with `use_qk_l2norm=False`
+- FI updates state in-place; we use `new_state.set_()` to alias storage (zero-copy DPS trick)
+- The benchmark clones all args each iteration, so `state` is already a fresh copy
+
+### End-to-end benchmark results (competition scoring)
+
+| Algo | RTX 3090 latency | RTX 3090 speedup | B200 latency | B200 speedup |
+|------|-----------------|------------------|-------------|--------------|
+| fla-recurrent | ~0.051 ms | ~29x | ~0.037 ms | ~32x |
+| fla-tma | ~0.043 ms | ~34x | ~0.041 ms | ~31x |
+| **fi-baseline** | **~0.043 ms** | **~35x** | **~0.017 ms** | **~46.5x** |
+
+### NCU kernel-level comparison (RTX 3090, B=1)
+
+| Metric | fla-recurrent (Triton) | fi-baseline (CuTe-DSL) |
+|--------|----------------------|----------------------|
+| Duration | 3.84 µs | 4.45 µs |
+| Grid × Block | 128 × 256 | 64 × 128 |
+| Waves/SM | 0.26 | 0.08 |
+| Achieved Occupancy | 24.9% | 8.2% |
+| DRAM Throughput | 151 GB/s (16.5%) | 122 GB/s (13.2%) |
+| IPC Active | 0.86 | 0.35 |
+| Registers/Thread | 31 | 40 |
+| Bank Conflicts | 0 | 1.9-way |
+| Branch Divergence | 0% | 50% |
+
+### Non-kernel overhead (RTX 3090)
+
+| | Kernel (NCU) | Gap | Total (sync/iter) |
+|---|---|---|---|
+| fla-recurrent | 3.8 µs | ~34 µs | ~38 µs |
+| fi-baseline | 4.5 µs | ~25 µs | ~30 µs |
+
+**Key observation**: ~85-90% of benchmark time is non-kernel overhead. The gap (~25-35 µs) could be Python dispatch, CUDA launch latency, driver overhead, L2 cache flush, CUDA event timing, stream sync, or benchmark harness bookkeeping. FI's gap is ~9 µs smaller — possibly due to TVM FFI — but the root cause is not conclusively isolated. On B200 the fi-baseline advantage is even larger (~46.5x vs ~32x).

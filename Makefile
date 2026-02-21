@@ -34,6 +34,9 @@ modal-tma:
 modal-pt:
 	ALGO=pt-reference modal run scripts/run_modal.py
 
+modal-fi:
+	ALGO=fi-baseline modal run scripts/run_modal.py
+
 COMMENT ?=
 
 bench-fla-all:
@@ -80,6 +83,23 @@ ncu-fla:
 		--launch-skip 3 --launch-count 1 \
 		-fo $(NCU_RESULTS_DIR)/gdn-decode-fla \
 		$(PYTHON) scripts/profile_ncu.py --algo=fla-recurrent
+
+ncu-fi:
+	mkdir -p $(NCU_RESULTS_DIR)
+	$(SUDO) $(NCU) --set full \
+		--import-source yes \
+		--kernel-name regex:kernel_cutlass_gdn_decode \
+		--launch-skip 3 --launch-count 1 \
+		-fo $(NCU_RESULTS_DIR)/gdn-decode-fi \
+		$(PYTHON) scripts/profile_ncu.py --algo=fi-baseline
+
+ncu-export-fi:
+	mkdir -p $(NCU_TXT_DIR)
+	$(SUDO) $(NCU) --set full \
+		--import-source yes \
+		--kernel-name regex:kernel_cutlass_gdn_decode \
+		--launch-skip 3 --launch-count 1 \
+		$(PYTHON) scripts/profile_ncu.py --algo=fi-baseline > $(NCU_TXT_DIR)/gdn-decode-fi.txt
 
 NCU_TXT_DIR := profiles/ncu-txt
 

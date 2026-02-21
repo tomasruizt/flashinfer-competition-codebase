@@ -1,5 +1,8 @@
 # FlashInfer AI Kernel Generation Contest - GDN Track
 
+## Writing Style
+- **Never use em dashes** (the "—" character). Use parentheses, commas, colons, semicolons, or split into separate sentences instead.
+
 ## Team
 - Team name: **lmu-css**
 - Track: **gated_delta_net** (Gated Delta Net)
@@ -171,6 +174,7 @@ python scripts/run_local.py --algo=pt-reference      # compiled PyTorch referenc
 | pt-reference (eager)     | ~1.4 ms   | ~1.0x                |
 | pt-reference (compiled)  | ~0.73 ms  | ~1.8x                |
 | fla-recurrent            | ~0.051 ms | ~29x                 |
+| fi-baseline              | ~0.043 ms | ~35x                 |
 | fla-tma                  | ~0.043 ms | ~34x                 |
 
 ### Performance (B200 via Modal)
@@ -178,6 +182,7 @@ python scripts/run_local.py --algo=pt-reference      # compiled PyTorch referenc
 | ------------------------ | --------- | -------------------- |
 | fla-recurrent            | ~0.037 ms | ~32x                 |
 | fla-tma                  | ~0.041 ms | ~31x                 |
+| fi-baseline              | ~0.017 ms | ~46.5x               |
 
 ## Modal Deployment Notes
 - The Modal image must install ALL Python packages that `kernel.py` imports at the top level
@@ -251,12 +256,32 @@ python scripts/run_local.py --algo=pt-reference      # compiled PyTorch referenc
 - All configs perform equivalently — kernel is memory-bound (dominated by state loads/stores)
 - Hardcoded config (BV=8, num_warps=8, num_stages=2) matches B200 autotuner pick
 
+## Large Gap Between NCU Kernel Time and Benchmark Time at B=1
+- Pure kernel time (NCU): fla-recurrent ~3.8 µs, fi-baseline ~4.5 µs
+- End-to-end (benchmark): fla-recurrent ~51 µs, fi-baseline ~43 µs
+- **~85-90% of benchmark time is non-kernel overhead** — the gap is ~25-35 µs
+- Possible sources: Python dispatch, CUDA launch latency, driver overhead, L2 cache flush,
+  CUDA event timing overhead, stream synchronization, benchmark harness bookkeeping
+- The fi-baseline gap is smaller (~8 µs less), possibly due to TVM FFI reducing some of these costs — but this is not conclusively proven to be Python-specific
+- `tensor.set_()` can alias DPS output to input storage (zero-copy) since benchmark clones args each iter
+- `torch.compile` cannot trace CuTe-DSL internals (`from_dlpack`, `cute.compile`, `cuda.CUstream`, TVM FFI)
+
+## FlashInfer Baseline (fi-baseline algo)
+- Uses `flashinfer.gdn_decode.gated_delta_rule_decode_pretranspose` (CuTe-DSL kernel)
+- K-last state layout `[B, HV, V, K]` f32 — matches competition exactly
+- FI updates state in-place; use `new_state.set_()` to alias storage (zero-copy DPS)
+- NCU kernel name regex: `kernel_cutlass_gdn_decode`
+- pip package name: `flashinfer-python` (NOT `flashinfer`)
+- Detailed analysis: `findings/fi-gdn-decode-kernel.md`
+
 ## Makefile — Primary Interface
 The Makefile is the main way to run things. Always prefer `make` targets over raw commands, and improve them when adding new workflows. Pipe long outputs to log files.
 ```
 make bench-fla              # local benchmark (fla-recurrent)
+make bench-fi               # local benchmark (fi-baseline)
 make bench-pt               # local benchmark (pt-reference)
 make modal-fla              # Modal B200 benchmark (fla-recurrent)
+make modal-fi               # Modal B200 benchmark (fi-baseline)
 make modal-pt               # Modal B200 benchmark (pt-reference)
 make bench-fla-all          # local + modal, logs to logs/bench-fla-{local,modal}.log
 make bench-tma-all          # local + modal, logs to logs/bench-tma-{local,modal}.log
@@ -264,7 +289,9 @@ make document-speedups      # parse bench logs → findings/speedups.csv
 make modal-logs             # download Modal benchmark logs to logs/fib-bench-modal/
 make proton-fla             # profile kernel with Proton
 make ncu-fla                # NCU full profile → profiles/ncu/gdn-decode-fla.ncu-rep
-make ncu-export-fla         # NCU full profile → profiles/ncu-txt/gdn-decode-fla.txt
+make ncu-fi                 # NCU full profile → profiles/ncu/gdn-decode-fi.ncu-rep
+make ncu-export-fla         # NCU text export → profiles/ncu-txt/gdn-decode-fla.txt
+make ncu-export-fi          # NCU text export → profiles/ncu-txt/gdn-decode-fi.txt
 make clean-triton-cache     # clear ~/.triton/cache
 ```
 - Env var overrides: `NUM_WORKLOADS=3 make modal-fla` (limit workloads), `ALGO=... make modal-fla`

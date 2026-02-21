@@ -40,7 +40,12 @@ TRACE_SET_PATH = "/data"
 image = (
     modal.Image.debian_slim(python_version="3.12")
     .pip_install(
-        "flashinfer-bench", "torch", "triton", "numpy", "flash-linear-attention"
+        "flashinfer-bench",
+        "torch",
+        "triton",
+        "numpy",
+        "flash-linear-attention",
+        "flashinfer-python",
     )
     .env({"TRITON_PRINT_AUTOTUNING": "1"})
 )

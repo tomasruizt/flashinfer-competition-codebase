@@ -16,7 +16,11 @@ import torch
 PROJECT_ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from solution.triton.kernel import kernel_fla_recurrent, kernel_fla_tma
+from solution.triton.kernel import (
+    kernel_fla_recurrent,
+    kernel_fla_tma,
+    kernel_fi_baseline,
+)
 from scripts.profile_proton import load_workload_tensors
 
 
@@ -25,13 +29,16 @@ def main():
 
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        "--algo", default="fla-recurrent", choices=["fla-recurrent", "fla-tma"]
+        "--algo",
+        default="fla-recurrent",
+        choices=["fla-recurrent", "fla-tma", "fi-baseline"],
     )
     args = parser.parse_args()
 
     kernel_fn = {
         "fla-recurrent": kernel_fla_recurrent,
         "fla-tma": kernel_fla_tma,
+        "fi-baseline": kernel_fi_baseline,
     }[args.algo]
     tensors = load_workload_tensors()
 
