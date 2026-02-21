@@ -68,12 +68,12 @@ can be written in **WY compact form**: `I - W * Yᵀ` where W, Y are d×N matric
 
 ## Two Kernels Required
 
+See `CLAUDE.md` "GDN Track: Two Kernels" for exact tensor shapes, dtypes, and definition names.
+
 ### Decode Kernel
 
 - **What:** Single recurrent step per new token
 - **Regime:** Memory-bound (small compute, large state read/write)
-- **State S:** d_k × d_v matrix per head (e.g., 128×128 = 16K elements)
-- **Complexity:** Moderate -- essentially a matrix-vector operation with rank-1 update
 - **Key challenge:** Efficient memory access for the state matrix
 
 ### Prefill Kernel
@@ -83,7 +83,6 @@ can be written in **WY compact form**: `I - W * Yᵀ` where W, Y are d×N matric
   - **Within chunk:** WY representation converts recurrence into GEMMs (parallel, tensor-core friendly)
   - **Across chunks:** State S propagated recurrently
 - **Regime:** Compute-bound (large matrix multiplies)
-- **Complexity:** High -- WY factorization, tiling, shared memory management
 - **Key challenges:** Correct WY factorization with gating, numerical stability (L2-normalized keys), chunk boundary correctness
 
 ## Existing Implementations
@@ -217,35 +216,110 @@ The kernel is deep in the memory-bound regime. But the data volume is so small (
 
 ## Why the kernel is latency-bound, not bandwidth-bound
 
-Total GMEM traffic is ~1 MB (512 KB state read + 512 KB state write + negligible q/k/v/scalars). At RTX 3090's 936 GB/s, this should take ~1 μs. The kernel takes ~50 μs — **<2% of peak bandwidth utilization**. The kernel is too small to saturate the memory subsystem.
+Total GMEM traffic is ~1 MB (512 KB state read + 512 KB state write + negligible q/k/v/scalars). At RTX 3090's 936 GB/s, this should take ~1 µs. NCU measures the kernel at ~3.8 µs, and corrected benchmarks agree at ~4.3-5.1 µs. The kernel achieves ~15% of peak bandwidth (latency-bound, not bandwidth-bound; see NCU metrics below).
 
-This is a single decode step — one read and one write of the state is irreducible. There are no redundant GMEM round-trips to eliminate.
+This is a single decode step; one read and one write of the state is irreducible. There are no redundant GMEM round-trips to eliminate.
 
-## Hypothesis: ~90% of measured latency is launch overhead, not GPU execution
+## Benchmark Timing Fix: Removing torch.cuda.synchronize() from the Hot Loop
 
-**Evidence (NCU profiling, RTX 3090):**
+### The problem
 
-| Measurement | Value | Source |
+flashinfer-bench's `do_bench()` (in `timing.py:187-206`) had a `torch.cuda.synchronize()` between the setup phase and the start CUDA event on every iteration:
+
+```python
+for i in range(rep):
+    _clear_cache(cache)                  # async: zeros 256 MB L2-flush buffer
+    setup_result = setup()               # async: clones tensor args
+    torch.cuda.synchronize(device)       # BUG: forces GPU idle before start event
+    start_events[i].record()
+    fn(setup_result)
+    end_events[i].record()
+```
+
+This sync drained the CUDA stream, so the GPU was idle when `start_events[i].record()` fired. The start timestamp was recorded immediately (idle GPU), then the CPU had to dispatch the kernel through Python (lambda, Runnable, Triton runtime, CUDA driver). The GPU sat idle during that entire CPU dispatch, and only started executing once the kernel arrived. The CUDA event elapsed time therefore measured: **CPU dispatch latency + kernel execution**.
+
+For a ~3.8 µs kernel, this inflated the reported time to ~51 µs (13x).
+
+### The fix
+
+Remove `torch.cuda.synchronize()`. Without it, the CPU enqueues everything onto the stream:
+
+```python
+for i in range(rep):
+    _clear_cache(cache)                  # enqueued on stream
+    setup_result = setup()               # enqueued on stream (clone ops)
+    start_events[i].record()             # enqueued on stream
+    fn(setup_result)                     # enqueued on stream
+    end_events[i].record()              # enqueued on stream
+```
+
+CUDA stream ordering guarantees that the start event records its timestamp only after the cache flush and clones complete on the GPU. The elapsed time between start and end events now measures only the kernel execution, with no GPU idle bubble.
+
+### Why this is correct
+
+The sync was unnecessary because CUDA streams are ordered. Operations enqueued on the same stream execute in FIFO order. The start event is enqueued after `_clear_cache()` and `setup()`, so its timestamp is recorded after those operations finish on the GPU. No explicit sync needed.
+
+### Validation: three independent measurements agree
+
+| Kernel | NCU (pure GPU) | NVBench (`cuda-bench`) | flashinfer-bench (fixed) |
+|--------|---------------|----------------------|--------------------------|
+| fla-recurrent | 3.84 µs | 5.14 µs | 4.3-4.5 µs |
+| fi-baseline | 4.50 µs | 5.43 µs | 4.7-4.8 µs |
+
+All three agree within ~1 µs. The old flashinfer-bench reported ~51 µs (fla) and ~43 µs (fi).
+
+NVBench (`cuda-bench`, NVIDIA's official kernel benchmarking tool) separately reports **CPU Time** (~54-76 µs) and **GPU Time** (~5 µs), confirming the ~50 µs gap was entirely CPU dispatch overhead. NVBench ran ~97K samples with statistical convergence, L2 cache flushing (`batched=False`), and GPU throttle detection.
+
+Script: `scripts/bench_nvbench.py`, targets: `make nvbench-fla`, `make nvbench-fi`.
+
+### How NVBench solves the GPU bubble (blocking kernel technique)
+
+NVBench's C++ "cold" measurement uses a more principled approach to eliminate the same GPU bubble
+([talk by Georgii Evtushenko](http://www.youtube.com/watch?v=CtrqBmYtSEk&t=838), NVBench engineering manager):
+
+```
+1. flush_device_l2()         // clear L2 cache
+2. sync_stream()             // drain the stream (equivalent to torch.cuda.synchronize)
+3. block_stream()            // launch a spinning kernel that HOLDS the GPU busy
+4. cuda_timer.start()        // record start event (queued behind blocker)
+5. --- user kernel ---       // enqueued behind blocker + start event
+6. cuda_timer.stop()         // record end event (queued after kernel)
+7. unblock_stream()          // release blocker → GPU executes: start → kernel → end
+```
+
+The key insight: NVBench *does* sync the stream (step 2), but then launches a **blocking kernel**
+(step 3) that spins on a device-side flag. The start event and benchmark kernel are enqueued behind
+the blocker. When `unblock_stream()` flips the flag, the GPU immediately processes the queued work
+with no idle bubble between the start event and the kernel.
+
+Source: `nvbench/blocking_kernel.cuh` and `nvbench/detail/measure_cold.cu` in the
+[NVBench repo](https://github.com/NVIDIA/nvbench).
+
+### Our fix vs NVBench's approach
+
+Both eliminate the GPU idle bubble, through different mechanisms:
+
+| | NVBench (C++) | Our fix (Python) |
 |---|---|---|
-| GPU kernel execution time | **3.81 µs** | NCU `--set full` |
-| End-to-end benchmark time | **~51 µs** | flashinfer-bench `do_bench()` |
-| Implied launch overhead | **~47 µs** (~92%) | difference |
+| Sync before measurement? | Yes (explicit `sync_stream()`) | No (removed the sync) |
+| How bubble is avoided | Blocking kernel holds GPU busy while work is enqueued behind it | CPU pipelines everything onto stream; GPU transitions directly from cache flush to start event to kernel |
+| Stream state at start event | Stream has pending work (blocker + start event + kernel) | Stream has pending work (cache flush + clones + start event + kernel) |
+| Guarantees clean start? | Yes (sync ensures prior work is done, blocker prevents idle gap) | Mostly (stream ordering ensures prior ops complete, but no explicit fence) |
 
-NCU profiles only GPU-side kernel execution. The benchmark measures CUDA-event-to-CUDA-event time, which includes the gap between recording the start event (after `torch.cuda.synchronize()`) and the kernel actually starting on the GPU. This gap is the launch latency: Python → Triton runtime → CUDA driver → GPU.
+Both produce equivalent GPU timing results (~5 µs), confirming they measure the same thing.
 
-**Other NCU findings supporting this:**
-- Compute throughput: 12.6% — GPU is mostly idle
-- Memory throughput: 15.9% (144 GB/s of 936 GB/s peak)
-- Achieved occupancy: 24.9% (0.26 waves, 128 blocks on 82 SMs)
-- Schedulers issue one instruction every 4.4 cycles (should be ~1)
-- 77% of cycles have no eligible warp
+### Remaining ~1 µs gap (NCU vs benchmarks)
 
-**Implication:** Further optimizing the Triton kernel (tiling, warp count, etc.) has negligible impact on end-to-end latency. The bottleneck is launch overhead. Possible mitigations:
-- **CUDA graphs** — capture and replay the kernel launch, eliminating Python/driver overhead
-- **Persistent kernel** — launch once, keep running across tokens
-- **Fuse with adjacent layers** — amortize launch cost over more work (e.g., fuse with output projection)
+NCU reports pure kernel execution (CUPTI-based). CUDA event timing includes a small residual overhead: event recording latency, and any GPU-side scheduling delay between the start event and the kernel's first instruction. This ~1 µs delta is expected and consistent across NVBench and flashinfer-bench.
 
-**Status:** Hypothesis. Needs validation on B200 (the competition target) where launch overhead may differ. Also needs confirmation that the ~47 µs gap is truly launch latency and not some other overhead in the benchmark harness.
+### Impact on speedup numbers
+
+| Kernel | Old speedup (vs ~1.2 ms reference) | New speedup |
+|--------|-----------------------------------|-------------|
+| fla-recurrent | ~29x | ~282x |
+| fi-baseline | ~35x | ~261x |
+
+The reference implementation time (~1.2 ms) is unaffected since it's dominated by actual compute, not launch overhead.
 
 ## NCU Detailed Metrics (RTX 3090, fla-recurrent kernel)
 

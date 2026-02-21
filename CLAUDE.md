@@ -146,6 +146,7 @@ Each kernel is a separate definition, needs a separate `config.toml` definition 
 - **fla-org/flash-linear-attention**: Primary Triton kernel library (`fla/ops/gated_delta_rule`)
 - **NVlabs/GatedDeltaNet**: Official ICLR 2025 implementation (wraps FLA kernels)
 - Research-grade Triton, not tuned for Blackwell — optimization headroom exists
+- Full list with links and papers: `findings/research.md` under "Existing Implementations"
 
 ## Multi-Algo Benchmarking
 
@@ -168,21 +169,20 @@ python scripts/run_local.py --algo=pt-reference      # compiled PyTorch referenc
 - Each JSON line has a `"solution"` field to distinguish between algos
 - To separate algos in the trace file, use different solution names via `pack_solution(name=...)`
 
-### Performance (RTX 3090)
-| Algo                     | Latency   | Speedup vs reference |
-| ------------------------ | --------- | -------------------- |
-| pt-reference (eager)     | ~1.4 ms   | ~1.0x                |
-| pt-reference (compiled)  | ~0.73 ms  | ~1.8x                |
-| fla-recurrent            | ~0.051 ms | ~29x                 |
-| fi-baseline              | ~0.043 ms | ~35x                 |
-| fla-tma                  | ~0.043 ms | ~34x                 |
+### Performance (RTX 3090, after benchmark timing fix)
+| Algo                    | Latency  | Speedup vs reference |
+| ----------------------- | -------- | -------------------- |
+| pt-reference (eager)    | ~1.4 ms  | ~1.0x                |
+| pt-reference (compiled) | ~0.73 ms | ~1.8x                |
+| fla-recurrent           | ~4.4 µs  | ~282x                |
+| fi-baseline             | ~4.7 µs  | ~261x                |
 
 ### Performance (B200 via Modal)
-| Algo                     | Latency   | Speedup vs reference |
-| ------------------------ | --------- | -------------------- |
-| fla-recurrent            | ~0.037 ms | ~32x                 |
-| fla-tma                  | ~0.041 ms | ~31x                 |
-| fi-baseline              | ~0.017 ms | ~46.5x               |
+| Algo          | Latency   | Speedup vs reference |
+| ------------- | --------- | -------------------- |
+| fla-recurrent | ~0.037 ms | ~32x                 |
+| fla-tma       | ~0.041 ms | ~31x                 |
+| fi-baseline   | ~0.017 ms | ~46.5x               |
 
 ## Modal Deployment Notes
 - The Modal image must install ALL Python packages that `kernel.py` imports at the top level
@@ -217,52 +217,27 @@ python scripts/run_local.py --algo=pt-reference      # compiled PyTorch referenc
 - Uses `--set full` for all metrics (speed-of-light, memory, occupancy, warp stalls, scheduler, roofline)
 - Key findings documented in `findings/research.md` under "NCU Detailed Metrics"
 
-### NCU key findings summary (RTX 3090, fla-recurrent)
-- **Duration**: 3.84 µs (pure GPU time, vs ~51 µs end-to-end benchmark)
-- **Bottleneck**: Latency-bound — long scoreboard stalls dominate (ratio 3.79), not bandwidth-bound
-- **GPU underfill**: 0.26 waves (128 blocks / 82 SMs), achieved occupancy 23.6%
-- **DRAM**: 145 GB/s achieved (15.6% of 936 GB/s peak) — GPU can't issue enough concurrent loads
-- **Pipe utilization**: LSU 20%, ALU 17%, FMA 9%, Tensor cores 0%
-- **Cache**: L1 hit 35%, L2 hit 58%, shared mem bank conflicts 0
-- **Coalescing**: Good (28-32 bytes/sector)
-
-### Decode kernel profiling results (RTX 3090, BV=8)
-- **Memory-bound**: loads/stores dominate, compute is minor
-- `load_initial_state` ~40% — loading [BK=128, BV=8] f32 state tile from GMEM (16 tiles per head)
-- `load_qkv` ~25% — loading q [BK], k [BK], v [BV] vectors
-- `state_update` ~15% — delta rule matvecs + outer product (the actual compute)
-- `store_final_state` ~15% — writing updated state tile back to GMEM
-- `store_output` negligible — just [BV=8] values per tile
+### Key profiling results (RTX 3090, fla-recurrent)
+- **NCU kernel time**: 3.84 µs (benchmarks agree at ~4.3-5.1 µs after timing fix)
+- **Bottleneck**: Latency-bound (long scoreboard stalls, 0.26 waves, 23.6% occupancy, 15.6% DRAM BW)
+- **Proton scope breakdown**: `load_initial_state` ~40%, `load_qkv` ~25%, `state_update` ~15%, `store_final_state` ~15%
+- Full NCU metrics and Proton analysis: `findings/research.md` under "NCU Detailed Metrics"
 
 ## Triton Autotuning
+- **Avoid `@triton.autotune`** for this kernel; hardcode config at launch site (adds ~6 µs Python dispatch overhead)
+- `@triton.autotune` is incompatible with `torch.compile` (compile bypasses autotuner entirely)
+- All configs perform equivalently (kernel is memory-bound); hardcoded: BV=8, num_warps=8, num_stages=2 (B200 winner)
+- Detailed investigation: `findings/research.md` under "Triton Autotuning Investigation"
 
-### `@triton.autotune` adds ~10-12% Python dispatch overhead (confirmed)
-- Tested with single-config autotune (identical kernel, same BV=32/num_warps=2/num_stages=3)
-- Without decorator: ~0.052 ms (~29x speedup)
-- With `@triton.autotune` (single config, warm cache): ~0.058 ms (~26x speedup)
-- ~0.006 ms overhead per launch — pure Python-side autotuner wrapper cost
-- **Conclusion**: avoid `@triton.autotune` for this kernel; hardcode config at launch site
+## Benchmark Timing Fix (torch.cuda.synchronize removal)
+- Removed `torch.cuda.synchronize()` from flashinfer-bench's `do_bench()` hot loop to eliminate GPU idle bubble
+- **Before**: ~51 µs (fla), ~43 µs (fi). **After**: ~4.3 µs (fla), ~4.7 µs (fi). Matches NCU within ~1 µs.
+- Validated with NVBench (`cuda-bench`): ~5.1 µs (fla), ~5.4 µs (fi)
+- NVBench solves the same problem with a "blocking kernel" ([talk](http://www.youtube.com/watch?v=CtrqBmYtSEk&t=838))
+- Script: `scripts/bench_nvbench.py`, targets: `make nvbench-fla`, `make nvbench-fi`
+- Full analysis (problem, fix, NVBench comparison): `findings/research.md` under "Benchmark Timing Fix"
 
-### `@triton.autotune` + `@torch.compile` incompatibility
-- `torch.compile(fullgraph=True)` wrapping the outer function bypasses Triton's autotune entirely
-- The autotuner cache stays empty — torch.compile traces the kernel launch and handles it internally
-- To use autotune, the kernel launch must NOT be inside a torch.compiled function
-
-### Config sweep results
-- Full sweep: BV={8,16,32,64,128} x num_warps={1,2,4,8} x num_stages={1,2,3} (60 configs)
-- Autotuner logs: `logs/fib-bench/` (local), `logs/fib-bench-modal/` (B200)
-- **RTX 3090 winner**: BV=16, num_warps=8, num_stages=1
-- **B200 winner**: BV=8, num_warps=8, num_stages=2
-- All configs perform equivalently — kernel is memory-bound (dominated by state loads/stores)
-- Hardcoded config (BV=8, num_warps=8, num_stages=2) matches B200 autotuner pick
-
-## Large Gap Between NCU Kernel Time and Benchmark Time at B=1
-- Pure kernel time (NCU): fla-recurrent ~3.8 µs, fi-baseline ~4.5 µs
-- End-to-end (benchmark): fla-recurrent ~51 µs, fi-baseline ~43 µs
-- **~85-90% of benchmark time is non-kernel overhead** — the gap is ~25-35 µs
-- Possible sources: Python dispatch, CUDA launch latency, driver overhead, L2 cache flush,
-  CUDA event timing overhead, stream synchronization, benchmark harness bookkeeping
-- The fi-baseline gap is smaller (~8 µs less), possibly due to TVM FFI reducing some of these costs — but this is not conclusively proven to be Python-specific
+## Misc Kernel Notes
 - `tensor.set_()` can alias DPS output to input storage (zero-copy) since benchmark clones args each iter
 - `torch.compile` cannot trace CuTe-DSL internals (`from_dlpack`, `cute.compile`, `cuda.CUstream`, TVM FFI)
 
@@ -292,6 +267,8 @@ make ncu-fla                # NCU full profile → profiles/ncu/gdn-decode-fla.n
 make ncu-fi                 # NCU full profile → profiles/ncu/gdn-decode-fi.ncu-rep
 make ncu-export-fla         # NCU text export → profiles/ncu-txt/gdn-decode-fla.txt
 make ncu-export-fi          # NCU text export → profiles/ncu-txt/gdn-decode-fi.txt
+make nvbench-fla            # NVBench benchmark (fla-recurrent)
+make nvbench-fi             # NVBench benchmark (fi-baseline)
 make clean-triton-cache     # clear ~/.triton/cache
 ```
 - Env var overrides: `NUM_WORKLOADS=3 make modal-fla` (limit workloads), `ALGO=... make modal-fla`
