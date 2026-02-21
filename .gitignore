@@ -1,6 +1,7 @@
 # FlashInfer Competition
 solution.json
 examples/timeline/ttgir_dump/
+examples/nsight-python/
 profiles/
 
 # CUDA build artifacts

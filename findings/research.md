@@ -247,6 +247,80 @@ NCU profiles only GPU-side kernel execution. The benchmark measures CUDA-event-t
 
 **Status:** Hypothesis. Needs validation on B200 (the competition target) where launch overhead may differ. Also needs confirmation that the ~47 µs gap is truly launch latency and not some other overhead in the benchmark harness.
 
+## NCU Detailed Metrics (RTX 3090, fla-recurrent kernel)
+
+Profile: `profiles/ncu/gdn-decode-fla.ncu-rep`
+Kernel: `fused_recurrent_gated_delta_rule_fwd_kernel`, grid=(16,8,1)=(128 blocks), block=256 threads, 31 regs/thread, 16B dynamic shared mem. Duration: **3.84 µs**.
+
+### Warp stall reasons (the smoking gun)
+
+| Stall reason | Ratio (per issue-active) | Meaning |
+|---|---|---|
+| **Long scoreboard** | **3.79** | Waiting on GMEM/L2/DRAM loads to return |
+| Short scoreboard | 1.13 | Waiting on L1/shared/math results |
+| Not selected | 0.61 | Eligible warp not picked by scheduler |
+| Barrier | 0.38 | `__syncthreads()` / warp barriers |
+| MIO throttle | 0.01 | Memory pipe backpressure (negligible) |
+| LG throttle | ~0 | Load/store unit backpressure (negligible) |
+
+**Long scoreboard dominates** — warps issue a global load, then stall waiting for the data. With only 0.26 waves (128 blocks on 82 SMs), there aren't enough warps to hide this latency. Low MIO/LG throttle confirms we're not bottlenecked on memory *throughput* — it's purely *latency* not being hidden.
+
+### Cache hit rates
+
+| Level | Hit rate |
+|---|---|
+| L1/TEX | 34.9% |
+| L2 | 57.6% |
+
+L1 hit rate is low because the 128x128 f32 state (64 KB per head) far exceeds L1 capacity. L2 captures some reuse from the q/k vectors being shared across V-tiles.
+
+### Pipe utilization (% of peak, during active cycles)
+
+| Pipe | Utilization | Notes |
+|---|---|---|
+| LSU (load/store) | 19.9% | Busiest pipe — confirms memory-dominant workload |
+| ALU | 17.1% | Gate math (exp, softplus, sigmoid) |
+| FMA | 9.3% | Matvec dot products, outer products |
+| Tensor cores | **0%** | Not used — scalar FMA only |
+| FP64 | 0% | All FP32 compute |
+
+### Occupancy limiters
+
+| Limiter | Max blocks/SM |
+|---|---|
+| Warps | 6 |
+| Registers | 8 |
+| Shared mem | 14 |
+| SM block limit | 16 |
+
+Warp limit (6 blocks/SM) is the theoretical bottleneck, but in practice the grid is so small (128 blocks / 82 SMs = 1.56 blocks/SM) that we never reach even this limit. Theoretical occupancy is 100%, achieved is 23.6%.
+
+### Coalescing and shared memory
+
+- **Global load efficiency**: ~28 bytes/sector (out of 32 max) — reasonably well-coalesced
+- **Global store efficiency**: ~32 bytes/sector — perfectly coalesced
+- **Shared memory bank conflicts**: **0** (both loads and stores)
+
+### DRAM traffic breakdown
+
+| Direction | Bytes | Bandwidth |
+|---|---|---|
+| Reads | 534 KB | 139 GB/s |
+| Writes | 24 KB | 6 GB/s |
+| **Total** | **558 KB** | **145 GB/s** (15.6% of 936 GB/s peak) |
+
+The 534 KB read matches: 8 heads x 128x128 x 4B = 512 KB state + ~22 KB for q/k/v/scalars. The 24 KB write is much less than expected (512 KB state write) — suggesting L2 write-back coalescing or the state write being absorbed by L2 during the measurement window.
+
+### IPC
+
+| Metric | Value |
+|---|---|
+| Executed IPC (active) | 0.83 |
+| Executed IPC (elapsed) | 0.47 |
+| Issue slots busy | 21.6% |
+
+IPC of 0.83 during active cycles is reasonable for a memory-bound kernel, but elapsed IPC drops to 0.47 because SMs are idle ~55% of the time (not enough blocks to fill them).
+
 ## Tile shape: [BV, BK] vs [BK, BV]
 
 The FLA kernel originally used `b_h = [BK, BV]` register tile shape, but memory is k-last `[V, K]` — meaning K (stride 1) is the contiguous dimension. The tile shape was transposed relative to memory layout.

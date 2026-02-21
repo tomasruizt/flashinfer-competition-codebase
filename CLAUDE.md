@@ -205,6 +205,22 @@ python scripts/run_local.py --algo=pt-reference      # compiled PyTorch referenc
 - **Scope toggling**: `PROTON_PROFILE` env var read at call time in the wrapper, passed as `PROFILE: tl.constexpr` to the kernel. When `False`, Triton eliminates dead branches at AST level → no `pl` references → torch.compile works. When `True` (profiling), dynamo is disabled → `pl` resolves normally.
 - Kernel scopes: `load_initial_state`, `load_qkv`, `state_update`, `store_output`, `store_final_state`
 
+## NCU (NVIDIA Nsight Compute) Profiling
+- Script: `scripts/profile_ncu.py` — run via `make ncu-fla` (requires sudo)
+- Output: `profiles/ncu/gdn-decode-fla.ncu-rep` (binary, open in Nsight Compute GUI or `ncu --import`)
+- Text export: `make ncu-export-fla` → `profiles/ncu-txt/gdn-decode-fla.txt`
+- Uses `--set full` for all metrics (speed-of-light, memory, occupancy, warp stalls, scheduler, roofline)
+- Key findings documented in `findings/research.md` under "NCU Detailed Metrics"
+
+### NCU key findings summary (RTX 3090, fla-recurrent)
+- **Duration**: 3.84 µs (pure GPU time, vs ~51 µs end-to-end benchmark)
+- **Bottleneck**: Latency-bound — long scoreboard stalls dominate (ratio 3.79), not bandwidth-bound
+- **GPU underfill**: 0.26 waves (128 blocks / 82 SMs), achieved occupancy 23.6%
+- **DRAM**: 145 GB/s achieved (15.6% of 936 GB/s peak) — GPU can't issue enough concurrent loads
+- **Pipe utilization**: LSU 20%, ALU 17%, FMA 9%, Tensor cores 0%
+- **Cache**: L1 hit 35%, L2 hit 58%, shared mem bank conflicts 0
+- **Coalescing**: Good (28-32 bytes/sector)
+
 ### Decode kernel profiling results (RTX 3090, BV=8)
 - **Memory-bound**: loads/stores dominate, compute is minor
 - `load_initial_state` ~40% — loading [BK=128, BV=8] f32 state tile from GMEM (16 tiles per head)
@@ -247,6 +263,8 @@ make bench-tma-all          # local + modal, logs to logs/bench-tma-{local,modal
 make document-speedups      # parse bench logs → findings/speedups.csv
 make modal-logs             # download Modal benchmark logs to logs/fib-bench-modal/
 make proton-fla             # profile kernel with Proton
+make ncu-fla                # NCU full profile → profiles/ncu/gdn-decode-fla.ncu-rep
+make ncu-export-fla         # NCU full profile → profiles/ncu-txt/gdn-decode-fla.txt
 make clean-triton-cache     # clear ~/.triton/cache
 ```
 - Env var overrides: `NUM_WORKLOADS=3 make modal-fla` (limit workloads), `ALGO=... make modal-fla`
