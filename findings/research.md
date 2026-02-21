@@ -312,6 +312,16 @@ Both produce equivalent GPU timing results (~5 µs), confirming they measure the
 
 NCU reports pure kernel execution (CUPTI-based). CUDA event timing includes a small residual overhead: event recording latency, and any GPU-side scheduling delay between the start event and the kernel's first instruction. This ~1 µs delta is expected and consistent across NVBench and flashinfer-bench.
 
+### Upstream status
+
+Filed as [flashinfer-bench#195](https://github.com/flashinfer-ai/flashinfer-bench/issues/195). As of 2026-02-21, there is no upstream fix or discussion about this.
+
+The correct pattern (single sync outside the loop) already exists in two related codebases:
+
+- **Triton's `do_bench`** ([`triton-lang/triton/python/triton/testing.py`](https://github.com/triton-lang/triton/blob/main/python/triton/testing.py)): no `synchronize()` inside the benchmark loop.
+- **FlashInfer's own `bench_gpu_time_with_cuda_event`** ([`flashinfer/testing/utils.py`](https://github.com/flashinfer-ai/flashinfer/blob/main/flashinfer/testing/utils.py)): explicitly comments *"Synchronize once outside of the loop to avoid synchronization overhead"*.
+- **PyTorch** has an open issue about the same pattern: [pytorch/pytorch#133053](https://github.com/pytorch/pytorch/issues/133053) ("Stop calling `torch.cuda.synchronize()` in `triton/testing.py` `do_bench`"), filed by Edward Yang.
+
 ### Impact on speedup numbers
 
 | Kernel | Old speedup (vs ~1.2 ms reference) | New speedup |

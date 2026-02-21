@@ -4,6 +4,8 @@
 
 - **FlashInfer baseline** (`fi-baseline`): Integrated FlashInfer's CuTe-DSL decode kernel (`gated_delta_rule_decode_pretranspose`) as a new algo. Achieves ~35x on RTX 3090, **~46.5x on B200** (best result so far).
 - **Large gap between NCU and benchmark times**: NCU shows similar kernel durations (~3.8 µs Triton vs ~4.5 µs CuTe-DSL), but benchmark measures ~30-51 µs. The ~25-35 µs gap could be non-kernel overhead (launch latency, driver, L2 flush, event timing, etc.; root cause not yet isolated). FI's gap is ~9 µs smaller.
+- **Root-caused fi-bench timing inflation**: The per-iteration `torch.cuda.synchronize()` in `do_bench()` creates a GPU idle bubble that inflates runtimes by over ~10x for microsecond-scale kernels. Removing it brings measurements in line with NCU and NVBench. Filed upstream: [flashinfer-bench#195](https://github.com/flashinfer-ai/flashinfer-bench/issues/195). Triton's `do_bench`, FlashInfer's own `bench_gpu_time_with_cuda_event`, and a PyTorch issue ([pytorch#133053](https://github.com/pytorch/pytorch/issues/133053)) all confirm this is the correct fix.
+- worked time: 3h00
 
 ## Worklog 2026-02-20
 
