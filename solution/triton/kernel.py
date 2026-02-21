@@ -117,10 +117,21 @@ def kernel_fi_baseline(q, k, v, state, A_log, a, dt_bias, b, scale, output, new_
     is already a fresh copy. We alias new_state → state's storage (zero-copy) so the
     framework reads back the mutated state via new_state.
     """
-    new_state.set_(state.untyped_storage(), state.storage_offset(), state.shape, state.stride())
+    new_state.set_(
+        state.untyped_storage(), state.storage_offset(), state.shape, state.stride()
+    )
     gated_delta_rule_decode_pretranspose(
-        q, k, v, state, A_log, a, dt_bias, b,
-        scale=scale, output=output, use_qk_l2norm=False,
+        q,
+        k,
+        v,
+        state,
+        A_log,
+        a,
+        dt_bias,
+        b,
+        scale=scale,
+        output=output,
+        use_qk_l2norm=False,
     )
 
 

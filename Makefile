@@ -3,7 +3,7 @@
 #   NUM_WORKLOADS=3 make modal-fla
 # TRITON_PRINT_AUTOTUNING is always on (logs go to logs/fib-bench/)
 
-.PHONY: bench-fla bench-pt bench-tma modal-fla modal-pt modal-tma modal-get-logs modal-clear-logs bench-fla-all bench-tma-all clean-empty-logs proton-fla proton-example clean-triton-cache document-speedups ncu-fla ncu-fla ncu-export-fla
+.PHONY: bench-fla bench-pt bench-tma modal-fla modal-pt modal-tma modal-get-logs modal-clear-logs bench-fla-all bench-tma-all clean-empty-logs proton-fla proton-example clean-triton-cache document-speedups ncu-fla ncu-fla ncu-export-fla nvbench-fla nvbench-fi
 
 export TRITON_PRINT_AUTOTUNING=1
 N ?= 0
@@ -110,6 +110,12 @@ ncu-export-fla:
 		--kernel-name fused_recurrent_gated_delta_rule_fwd_kernel \
 		--launch-skip 3 --launch-count 1 \
 		$(PYTHON) scripts/profile_ncu.py --algo=fla-recurrent > $(NCU_TXT_DIR)/gdn-decode-fla.txt
+
+nvbench-fla:
+	python scripts/bench_nvbench.py --algo=fla-recurrent
+
+nvbench-fi:
+	python scripts/bench_nvbench.py --algo=fi-baseline
 
 proton-example:
 	cd timeline && TRITON_ALWAYS_COMPILE=1 TRITON_KERNEL_DUMP=1 TRITON_DUMP_DIR=ttgir_dump python example_dsl.py
