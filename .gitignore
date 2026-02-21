@@ -1,6 +1,6 @@
 # FlashInfer Competition
 solution.json
-timeline/ttgir_dump/
+examples/timeline/ttgir_dump/
 profiles/
 
 # CUDA build artifacts
