@@ -9,6 +9,7 @@ See `make ncu-fla` for the full command.
 
 import torch
 
+from solution.cuda.binding import kernel_cuda
 from solution.triton.kernel import (
     kernel_fla_recurrent,
     kernel_fla_tma,
@@ -24,7 +25,7 @@ def main():
     parser.add_argument(
         "--algo",
         default="fla-recurrent",
-        choices=["fla-recurrent", "fla-tma", "fi-baseline"],
+        choices=["fla-recurrent", "fla-tma", "fi-baseline", "cuda-v1"],
     )
     args = parser.parse_args()
 
@@ -32,6 +33,7 @@ def main():
         "fla-recurrent": kernel_fla_recurrent,
         "fla-tma": kernel_fla_tma,
         "fi-baseline": kernel_fi_baseline,
+        "cuda-v1": kernel_cuda,
     }[args.algo]
     tensors = load_workload_tensors()
 

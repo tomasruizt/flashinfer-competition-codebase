@@ -193,9 +193,9 @@ def kernel_fla_recurrent(
 # To sweep configs, uncomment @triton.autotune below and remove num_warps/num_stages/BV
 # from the launch call. Grid is already adaptive via lambda meta.
 # Run with TRITON_PRINT_AUTOTUNING=1, logs go to ./logs/fib-bench/.
-# Best config on RTX 3090: BV=16, num_warps=8, num_stages=1
+# Best config on RTX 3090: BV=8 or 16 (tied at ~4.25 µs), num_warps=8
 # Best config on B200:    BV=8,  num_warps=8, num_stages=2
-# (all configs perform equivalently — kernel is memory-bound).
+# BV matters: 4.25 µs (BV=8) vs 7.27 µs (BV=128). See findings/research.md.
 # @triton.autotune(
 #     configs=[
 #         triton.Config({"BV": bv}, num_warps=nw, num_stages=ns)

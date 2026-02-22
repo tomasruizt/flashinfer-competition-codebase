@@ -9,6 +9,11 @@ ALGO_ENTRY_POINTS = {
     "fla-tma": "kernel.py::kernel_fla_tma",
     "pt-reference": "kernel.py::kernel_pt_reference",
     "fi-baseline": "kernel.py::kernel_fi_baseline",
+    "cuda-v1": "kernel.cu::kernel_cuda",
+}
+
+ALGO_LANGUAGES = {
+    "cuda-v1": "cuda",
 }
 
 

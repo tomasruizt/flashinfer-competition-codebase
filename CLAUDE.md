@@ -10,9 +10,10 @@
 ## Project Structure
 - `config.toml` — Solution metadata and build config. `definition` must match the exact definition name (e.g. `gdn_decode_qk4_v8_d128_k_last`), not the track name.
 - `solution/triton/kernel.py` — Triton/Python kernel implementation. Entry point is a regular Python function (not necessarily `@triton.jit`).
-- `solution/cuda/kernel.cu` + `binding.py` — CUDA alternative.
+- `solution/cuda/kernel.cu` — CUDA C++ kernel with TVM FFI export (`TVM_FFI_DLL_EXPORT_TYPED_FUNC`).
+- `solution/cuda/binding.py` — Local Python binding via `tvm_ffi.cpp.build()` + `@register_global_func`.
 - `scripts/` — Python package (has `__init__.py`). All scripts run as modules: `python -m scripts.X`.
-  - `shared.py` — Shared constants: `ALGO_ENTRY_POINTS`, `PROJECT_ROOT`, `parse_args()`.
+  - `shared.py` — Shared constants: `ALGO_ENTRY_POINTS`, `ALGO_LANGUAGES`, `PROJECT_ROOT`, `parse_args()`.
   - `pack_solution.py` — Packs solution into `solution.json`.
   - `run_local.py` — Local benchmark runner.
   - `run_modal.py` — Cloud benchmark (B200 GPUs via Modal).
@@ -29,7 +30,7 @@
 - Within `scripts/`, use **relative imports**: `from .shared import ALGO_ENTRY_POINTS`.
 - For kernel imports: `from solution.triton.kernel import ...` (works because `-m` adds CWD to sys.path).
 - No `sys.path` manipulation, except inside Modal remote functions (container mounts at `/root/`).
-- To add a new algo: add one entry to `ALGO_ENTRY_POINTS` in `shared.py`, add one wrapper function in `kernel.py`.
+- To add a new algo: add one entry to `ALGO_ENTRY_POINTS` in `shared.py`, add one wrapper function in `kernel.py`. For non-Triton algos, also add an entry to `ALGO_LANGUAGES`.
 
 ## Environment
 - Venv: `.venv/` in project root
@@ -37,9 +38,10 @@
 - Dataset: `~/code/mlsys26-contest` (env var `FIB_DATASET_PATH`, set in `~/.bashrc`)
 
 ## Config Notes
-- `entry_point` format must include the `.py` extension: `kernel.py::kernel` (not `kernel::kernel` or just `kernel`)
+- `entry_point` format: `kernel.py::kernel_fla_recurrent` (Triton) or `kernel.cu::kernel_cuda` (CUDA TVM FFI)
 - `definition` must be the exact definition name from the dataset (e.g. `gdn_decode_qk4_v8_d128_k_last`), not the track name (`gated_delta_net`)
 - DPS (Destination Passing Style) is default: kernel receives pre-allocated output tensors as extra args
+- `language="triton"` uses PythonBuilder (imports .py, calls function). `language="cuda"` uses TVMFFIBuilder (compiles .cu, exports via TVM FFI). The `ALGO_LANGUAGES` dict in `shared.py` overrides the default from config.toml.
 
 ## What is GDN?
 
@@ -191,6 +193,7 @@ python -m scripts.run_local --algo=pt-reference      # compiled PyTorch referenc
 | pt-reference (eager)    | ~1.4 ms  | ~1.0x                |
 | pt-reference (compiled) | ~0.73 ms | ~1.8x                |
 | fla-recurrent           | ~4.3 µs  | ~280x                |
+| cuda-v1                 | ~4.7 µs  | ~255x                |
 | fi-baseline             | ~4.8 µs  | ~250x                |
 | fla-tma                 | ~7.5 µs  | ~161x                |
 
@@ -245,7 +248,7 @@ NVBench confirms the kernel is latency-bound on B200: <2% of 7.7 TB/s bandwidth 
 ## Triton Autotuning
 - **Avoid `@triton.autotune`** for this kernel; hardcode config at launch site (adds ~6 µs Python dispatch overhead)
 - `@triton.autotune` is incompatible with `torch.compile` (compile bypasses autotuner entirely)
-- All configs perform equivalently (kernel is memory-bound); hardcoded: BV=8, num_warps=8, num_stages=2 (B200 winner)
+- BV tile size matters: BV=8/16 tied at ~4.25 µs, degrades to ~7.3 µs at BV=128 (see `findings/research.md`). Hardcoded: BV=8, num_warps=8, num_stages=2
 - Detailed investigation: `findings/research.md` under "Triton Autotuning Investigation"
 
 ## Benchmark Timing Fix (torch.cuda.synchronize removal)
@@ -268,11 +271,33 @@ NVBench confirms the kernel is latency-bound on B200: <2% of 7.7 TB/s bandwidth 
 - pip package name: `flashinfer-python` (NOT `flashinfer`)
 - Detailed analysis: `findings/fi-gdn-decode-kernel.md`
 
+## CUDA Kernel (cuda-v1 algo)
+- Hand-written CUDA C++ port of the FLA Triton kernel
+- Grid: `(V/BV, B*HV)` = `(16, 8)` = 128 blocks, 1 warp (32 threads) per block
+- Per-thread: KVEC=4 K-elements, `h[8][4]` state in registers (32 regs)
+- State loads/stores: `float4` for coalesced 128-bit access
+- Reductions: warp `__shfl_xor_sync` butterfly all-reduce (5 steps, no shared memory)
+- TVM FFI integration: `TVM_FFI_DLL_EXPORT_TYPED_FUNC(kernel_cuda, ...)` in kernel.cu
+- Local binding: `binding.py` uses `tvm_ffi.cpp.build()` + `tvm_ffi.load_module()` for bench/profile scripts
+- NCU kernel name: `gdn_decode_kernel`
+
+### TVM FFI Builder (language="cuda")
+- The framework's TVMFFIBuilder compiles `.cu` files via `tvm_ffi.cpp.build()` (nvcc)
+- Host function receives `tvm::ffi::TensorView` (zero-copy from torch via DLPack)
+- Stream via `TVMFFIEnvGetStream(dev.device_type, dev.device_id)`
+- Export: `TVM_FFI_DLL_EXPORT_TYPED_FUNC(symbol_name, cpp_function)`
+- Entry point format: `kernel.cu::symbol_name`
+- Supported arg types: `TensorView`, `int32_t`, `int64_t`, `float`, `double`, `bool`, `std::string`
+- Headers: `<tvm/ffi/container/tensor.h>`, `<tvm/ffi/function.h>`, `<tvm/ffi/extra/c_env_api.h>`
+- `tvm` package is NOT installed; use `tvm_ffi` (`from tvm_ffi import register_global_func`)
+- `pack_solution_from_files` rejects empty files (SourceFile content >= 1 char); `__init__.py` needs a comment
+
 ## Makefile — Primary Interface
 The Makefile is the main way to run things. Always prefer `make` targets over raw commands, and improve them when adding new workflows. Pipe long outputs to log files.
 ```
 make bench-fla              # local benchmark (fla-recurrent)
 make bench-fi               # local benchmark (fi-baseline)
+make bench-cuda             # local benchmark (cuda-v1)
 make bench-pt               # local benchmark (pt-reference)
 make modal-fla              # Modal B200 benchmark (fla-recurrent)
 make modal-fi               # Modal B200 benchmark (fi-baseline)
@@ -284,10 +309,12 @@ make modal-logs             # download Modal benchmark logs to logs/fib-bench-mo
 make proton-fla             # profile kernel with Proton
 make ncu-fla                # NCU full profile → profiles/ncu/gdn-decode-fla.ncu-rep
 make ncu-fi                 # NCU full profile → profiles/ncu/gdn-decode-fi.ncu-rep
+make ncu-cuda               # NCU full profile → profiles/ncu/gdn-decode-cuda.ncu-rep
 make ncu-export-fla         # NCU text export → profiles/ncu-txt/gdn-decode-fla.txt
 make ncu-export-fi          # NCU text export → profiles/ncu-txt/gdn-decode-fi.txt
 make nvbench-fla            # NVBench benchmark (fla-recurrent)
 make nvbench-fi             # NVBench benchmark (fi-baseline)
+make nvbench-cuda           # NVBench benchmark (cuda-v1)
 make clean-triton-cache     # clear ~/.triton/cache
 ```
 - Env var overrides: `NUM_WORKLOADS=3 make modal-fla` (limit workloads), `ALGO=... make modal-fla`

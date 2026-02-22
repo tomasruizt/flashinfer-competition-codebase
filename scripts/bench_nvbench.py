@@ -13,6 +13,7 @@ Usage:
 import cuda.bench as bench
 import torch
 
+from solution.cuda.binding import kernel_cuda
 from solution.triton.kernel import (
     kernel_fi_baseline,
     kernel_fla_recurrent,
@@ -29,6 +30,7 @@ ALGOS = {
     "fla-recurrent": kernel_fla_recurrent,
     "fi-baseline": kernel_fi_baseline,
     "fla-tma": kernel_fla_tma,
+    "cuda-v1": kernel_cuda,
 }
 
 

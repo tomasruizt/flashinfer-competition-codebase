@@ -9,7 +9,7 @@ import os
 from flashinfer_bench import Benchmark, BenchmarkConfig, Solution, TraceSet
 
 from .pack_solution import pack_solution
-from .shared import ALGO_ENTRY_POINTS, PROJECT_ROOT, parse_args
+from .shared import ALGO_ENTRY_POINTS, ALGO_LANGUAGES, PROJECT_ROOT, parse_args
 
 
 def get_trace_set_path() -> str:
@@ -111,7 +111,8 @@ def main():
 
     # Use algo as solution name so "solution" in each trace line is the algo (easy to filter in analysis)
     print("Packing solution from source files...")
-    solution_path = pack_solution(entry_point=entry_point, name=args.algo)
+    language = ALGO_LANGUAGES.get(args.algo)
+    solution_path = pack_solution(entry_point=entry_point, name=args.algo, language=language)
 
     print("\nLoading solution...")
     solution = Solution.model_validate_json(solution_path.read_text())

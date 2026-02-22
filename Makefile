@@ -3,7 +3,7 @@
 #   NUM_WORKLOADS=3 make modal-fla
 # TRITON_PRINT_AUTOTUNING is always on (logs go to logs/fib-bench/)
 
-.PHONY: bench-fla bench-pt bench-tma modal-fla modal-pt modal-tma modal-get-logs modal-clear-logs bench-fla-all bench-tma-all clean-empty-logs proton-fla proton-example clean-triton-cache document-speedups ncu-fla ncu-fla ncu-export-fla nvbench-fla nvbench-fi nvbench-all nvbench-modal-fla nvbench-modal-fi nvbench-modal-all
+.PHONY: bench-fla bench-pt bench-tma bench-fi bench-cuda modal-fla modal-pt modal-tma modal-fi modal-get-logs modal-clear-logs bench-fla-all bench-tma-all clean-empty-logs proton-fla proton-example clean-triton-cache document-speedups ncu-fla ncu-fi ncu-cuda ncu-export-fla ncu-export-fi nvbench-fla nvbench-fi nvbench-cuda nvbench-all nvbench-modal-fla nvbench-modal-fi nvbench-modal-all
 
 export TRITON_PRINT_AUTOTUNING=1
 N ?= 0
@@ -25,6 +25,9 @@ bench-tma:
 bench-fi:
 	python -m scripts.run_local --algo=fi-baseline -n $(N)
 
+bench-cuda:
+	python -m scripts.run_local --algo=cuda-v1 -n $(N)
+
 modal-fla:
 	ALGO=fla-recurrent modal run -m scripts.run_modal
 
@@ -36,6 +39,9 @@ modal-pt:
 
 modal-fi:
 	ALGO=fi-baseline modal run -m scripts.run_modal
+
+modal-cuda:
+	ALGO=cuda-v1 modal run -m scripts.run_modal
 
 COMMENT ?=
 
@@ -93,6 +99,15 @@ ncu-fi:
 		-fo $(NCU_RESULTS_DIR)/gdn-decode-fi \
 		$(PYTHON) -m scripts.profile_ncu --algo=fi-baseline
 
+ncu-cuda:
+	mkdir -p $(NCU_RESULTS_DIR)
+	$(SUDO) $(NCU) --set full \
+		--import-source yes \
+		--kernel-name gdn_decode_kernel \
+		--launch-skip 3 --launch-count 1 \
+		-fo $(NCU_RESULTS_DIR)/gdn-decode-cuda \
+		$(PYTHON) -m scripts.profile_ncu --algo=cuda-v1
+
 ncu-export-fi:
 	mkdir -p $(NCU_TXT_DIR)
 	$(SUDO) $(NCU) --set full \
@@ -110,6 +125,9 @@ ncu-export-fla:
 		--kernel-name fused_recurrent_gated_delta_rule_fwd_kernel \
 		--launch-skip 3 --launch-count 1 \
 		$(PYTHON) -m scripts.profile_ncu --algo=fla-recurrent > $(NCU_TXT_DIR)/gdn-decode-fla.txt
+
+nvbench-cuda:
+	python -m scripts.bench_nvbench --algo=cuda-v1
 
 nvbench-fla:
 	python -m scripts.bench_nvbench --algo=fla-recurrent

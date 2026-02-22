@@ -16,7 +16,7 @@ except ImportError:
 from flashinfer_bench import BuildSpec
 from flashinfer_bench.agents import pack_solution_from_files
 
-from .shared import ALGO_ENTRY_POINTS, PROJECT_ROOT, parse_args
+from .shared import ALGO_ENTRY_POINTS, ALGO_LANGUAGES, PROJECT_ROOT, parse_args
 
 
 def load_config() -> dict:
@@ -29,7 +29,7 @@ def load_config() -> dict:
         return tomllib.load(f)
 
 
-def pack_solution(output_path: Path = None, entry_point: str = None, name: str = None) -> Path:
+def pack_solution(output_path: Path = None, entry_point: str = None, name: str = None, language: str = None) -> Path:
     """Pack solution files into a Solution JSON."""
     config = load_config()
 
@@ -39,7 +39,8 @@ def pack_solution(output_path: Path = None, entry_point: str = None, name: str =
     # Use explicit name override, or base name from config (e.g. with algo suffix from run_local)
     solution_name = name if name is not None else solution_config["name"]
 
-    language = build_config["language"]
+    if language is None:
+        language = build_config["language"]
     if entry_point is None:
         entry_point = build_config["entry_point"]
 
@@ -90,7 +91,8 @@ def main():
     entry_point = ALGO_ENTRY_POINTS[args.algo]
 
     try:
-        pack_solution(args.output, entry_point=entry_point, name=args.algo)
+        language = ALGO_LANGUAGES.get(args.algo)
+        pack_solution(args.output, entry_point=entry_point, name=args.algo, language=language)
     except Exception as e:
         print(f"Error: {e}", file=sys.stderr)
         sys.exit(1)

@@ -21,7 +21,7 @@ from flashinfer_bench import Benchmark, BenchmarkConfig, Solution, TraceSet
 
 from .modal_config import TRACE_SET_PATH, image, trace_volume
 from .pack_solution import pack_solution
-from .shared import ALGO_ENTRY_POINTS
+from .shared import ALGO_ENTRY_POINTS, ALGO_LANGUAGES
 
 app = modal.App("flashinfer-bench")
 
@@ -124,7 +124,8 @@ def main():
     print(f"Algorithm: {algo} (entry_point: {entry_point})")
 
     print("Packing solution from source files...")
-    solution_path = pack_solution(entry_point=entry_point, name=algo)
+    language = ALGO_LANGUAGES.get(algo)
+    solution_path = pack_solution(entry_point=entry_point, name=algo, language=language)
 
     print("\nLoading solution...")
     solution = Solution.model_validate_json(solution_path.read_text())

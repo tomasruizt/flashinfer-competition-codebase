@@ -140,9 +140,22 @@ The cause of the ~16 µs difference is not conclusively identified. Possible exp
 - Interaction with the benchmark harness subprocess model
 - Something else — needs further investigation
 
-### The config choice itself doesn't matter (for this kernel)
+### BV tile size matters (with accurate timing)
 
-Tested BV={8, 32} and num_warps={1, 2} without the decorator — all perform identically at ~0.050 ms. The kernel is so small (B=1, 8 heads, no loops) that tile size and warp count don't affect performance on RTX 3090. May differ on B200.
+Previous testing at ~50 µs (inflated by `torch.cuda.synchronize`) showed no difference between configs. With accurate timing (~4 µs), BV has a clear effect. Sweep on RTX 3090, N=3 workloads, num_warps=8, num_stages=2:
+
+| BV  | Avg Latency | Speedup | vs Best |
+|-----|-------------|---------|---------|
+| 4   | 4.97 µs     | ~240x   | +17%    |
+| **8**   | **4.26 µs** | **~275x** | **baseline** |
+| 16  | 4.25 µs     | ~283x   | tied    |
+| 32  | 4.82 µs     | ~260x   | +13%    |
+| 64  | 5.79 µs     | ~215x   | +36%    |
+| 128 | 7.27 µs     | ~163x   | +71%    |
+
+Sweet spot is BV=8 or BV=16. BV=4 launches too many threadblocks (not enough work per block). BV>=32 degrades monotonically, likely due to register pressure and reduced occupancy from larger tiles.
+
+Hardcoded to BV=8 (B200 winner from earlier autotuning).
 
 ### `@triton.autotune` is incompatible with `torch.compile`
 
