@@ -6,6 +6,8 @@
 - CUDA v2 loads the state (which is 99% of the data loaded) only once into registers, and reduces with warp shuffles. However, it suffered from register pressure.
 - CUDA v3 loads the state into SMEM, so that each thread can compute without warp shuffles, but the looped SMEM access slowed down the kernel.
 - CUDA v4 is basically exactly the same config as the FLA kernel, but in CUDA.
+- None of the CUDA kernels are yet faster than the FLA kernel.
+- worked time: 4h25
 
 ## Worklog 2026-02-21
 
