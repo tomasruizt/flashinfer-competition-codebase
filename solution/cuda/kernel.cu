@@ -118,7 +118,7 @@ __global__ void gdn_decode_kernel(
         float partial = 0.0f;
         #pragma unroll
         for (int i = 0; i < KVEC; i++) {
-            partial += k_reg[i] * h[bv][i];
+            partial = fmaf(k_reg[i], h[bv][i], partial);
         }
         // Warp all-reduce: every thread gets old_v[bv]
         float old_v_bv = warp_reduce_sum(partial);
@@ -129,7 +129,7 @@ __global__ void gdn_decode_kernel(
         // Outer product: h[bv][k] += dv * k[k]
         #pragma unroll
         for (int i = 0; i < KVEC; i++) {
-            h[bv][i] += dv * k_reg[i];
+            h[bv][i] = fmaf(dv, k_reg[i], h[bv][i]);
         }
     }
 
@@ -141,7 +141,7 @@ __global__ void gdn_decode_kernel(
             float partial = 0.0f;
             #pragma unroll
             for (int i = 0; i < KVEC; i++) {
-                partial += q_reg[i] * h[bv][i];
+                partial = fmaf(q_reg[i], h[bv][i], partial);
             }
             float out_bv = warp_reduce_sum(partial);
             if (tid == 0) {
@@ -150,7 +150,7 @@ __global__ void gdn_decode_kernel(
         }
     }
 
-    // --- Store state tile [BV, BK] f32 via float4 (coalesced 128-bit) ---
+    // --- Store state tile [BV, BK] f32 via float4, streaming (bypass L2) ---
     #pragma unroll
     for (int bv = 0; bv < BV; bv++) {
         const int v_idx = i_v * BV + bv;
@@ -159,13 +159,13 @@ __global__ void gdn_decode_kernel(
         val.y = h[bv][1];
         val.z = h[bv][2];
         val.w = h[bv][3];
-        *reinterpret_cast<float4*>(
-            ht + state_head_offset + v_idx * K_dim + k_base) = val;
+        __stcs(reinterpret_cast<float4*>(
+            ht + state_head_offset + v_idx * K_dim + k_base), val);
     }
 }
 
 // ---------------------------------------------------------------------------
-// TVM FFI host wrappers: v1 (BV=8, 128 blocks), v1b (BV=16, 64 blocks)
+// TVM FFI host wrappers: v1 (BV=8), v1b (BV=16), v1c (BV=4), v1d (BV=2)
 // ---------------------------------------------------------------------------
 
 #define DEFINE_V1_HOST(FuncName, Bv)                                           \
@@ -208,11 +208,15 @@ void FuncName(                                                                 \
     );                                                                         \
 }
 
-DEFINE_V1_HOST(KernelCuda,   8)   // 128 blocks (v1)
+DEFINE_V1_HOST(KernelCuda,    8)   // 128 blocks (v1)
 DEFINE_V1_HOST(KernelCudaV1b, 16)  //  64 blocks (v1b)
+DEFINE_V1_HOST(KernelCudaV1c,  4)  // 256 blocks (v1c)
+DEFINE_V1_HOST(KernelCudaV1d,  2)  // 512 blocks (v1d)
 
 TVM_FFI_DLL_EXPORT_TYPED_FUNC(kernel_cuda, KernelCuda);
 TVM_FFI_DLL_EXPORT_TYPED_FUNC(kernel_cuda_v1b, KernelCudaV1b);
+TVM_FFI_DLL_EXPORT_TYPED_FUNC(kernel_cuda_v1c, KernelCudaV1c);
+TVM_FFI_DLL_EXPORT_TYPED_FUNC(kernel_cuda_v1d, KernelCudaV1d);
 
 // ===========================================================================
 // V2 kernel: 4 warps per block, shared memory k/q, templated on BV_PER_WARP

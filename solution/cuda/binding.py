@@ -55,6 +55,8 @@ def _make_cuda_entry(symbol):
 
 
 kernel_cuda_v1b = _make_cuda_entry("kernel_cuda_v1b")
+kernel_cuda_v1c = _make_cuda_entry("kernel_cuda_v1c")
+kernel_cuda_v1d = _make_cuda_entry("kernel_cuda_v1d")
 kernel_cuda_v2 = _make_cuda_entry("kernel_cuda_v2")
 kernel_cuda_v2b = _make_cuda_entry("kernel_cuda_v2b")
 kernel_cuda_v2c = _make_cuda_entry("kernel_cuda_v2c")
@@ -63,6 +65,8 @@ kernel_cuda_v3 = _make_cuda_entry("kernel_cuda_v3")
 # Register in TVM global table (non-decorator form preserves kwargs support)
 register_global_func("flashinfer.kernel_cuda", kernel_cuda)
 register_global_func("flashinfer.kernel_cuda_v1b", kernel_cuda_v1b)
+register_global_func("flashinfer.kernel_cuda_v1c", kernel_cuda_v1c)
+register_global_func("flashinfer.kernel_cuda_v1d", kernel_cuda_v1d)
 register_global_func("flashinfer.kernel_cuda_v2", kernel_cuda_v2)
 register_global_func("flashinfer.kernel_cuda_v2b", kernel_cuda_v2b)
 register_global_func("flashinfer.kernel_cuda_v2c", kernel_cuda_v2c)

@@ -11,6 +11,8 @@ ALGO_ENTRY_POINTS = {
     "fi-baseline": "kernel.py::kernel_fi_baseline",
     "cuda-v1": "kernel.cu::kernel_cuda",
     "cuda-v1b": "kernel.cu::kernel_cuda_v1b",
+    "cuda-v1c": "kernel.cu::kernel_cuda_v1c",
+    "cuda-v1d": "kernel.cu::kernel_cuda_v1d",
     "cuda-v2": "kernel.cu::kernel_cuda_v2",
     "cuda-v2b": "kernel.cu::kernel_cuda_v2b",
     "cuda-v2c": "kernel.cu::kernel_cuda_v2c",
@@ -20,11 +22,50 @@ ALGO_ENTRY_POINTS = {
 ALGO_LANGUAGES = {
     "cuda-v1": "cuda",
     "cuda-v1b": "cuda",
+    "cuda-v1c": "cuda",
+    "cuda-v1d": "cuda",
     "cuda-v2": "cuda",
     "cuda-v2b": "cuda",
     "cuda-v2c": "cuda",
     "cuda-v3": "cuda",
 }
+
+
+def load_algo_functions() -> dict:
+    """Lazily import and return a mapping from algo name to callable kernel function.
+
+    Imports are deferred because they pull in torch, triton, and CUDA bindings,
+    which not every script needs.
+    """
+    from solution.cuda.binding import (
+        kernel_cuda,
+        kernel_cuda_v1b,
+        kernel_cuda_v1c,
+        kernel_cuda_v1d,
+        kernel_cuda_v2,
+        kernel_cuda_v2b,
+        kernel_cuda_v2c,
+        kernel_cuda_v3,
+    )
+    from solution.triton.kernel import (
+        kernel_fi_baseline,
+        kernel_fla_recurrent,
+        kernel_fla_tma,
+    )
+
+    return {
+        "fla-recurrent": kernel_fla_recurrent,
+        "fi-baseline": kernel_fi_baseline,
+        "fla-tma": kernel_fla_tma,
+        "cuda-v1": kernel_cuda,
+        "cuda-v1b": kernel_cuda_v1b,
+        "cuda-v1c": kernel_cuda_v1c,
+        "cuda-v1d": kernel_cuda_v1d,
+        "cuda-v2": kernel_cuda_v2,
+        "cuda-v2b": kernel_cuda_v2b,
+        "cuda-v2c": kernel_cuda_v2c,
+        "cuda-v3": kernel_cuda_v3,
+    }
 
 
 def parse_args():

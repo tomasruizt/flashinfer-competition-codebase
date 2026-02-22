@@ -3,7 +3,7 @@
 #   NUM_WORKLOADS=3 make modal-fla
 # TRITON_PRINT_AUTOTUNING is always on (logs go to logs/fib-bench/)
 
-.PHONY: bench-fla bench-pt bench-tma bench-fi bench-cuda bench-cuda-v2 modal-fla modal-pt modal-tma modal-fi modal-cuda-v2 modal-get-logs modal-clear-logs bench-fla-all bench-tma-all clean-empty-logs proton-fla proton-example clean-triton-cache document-speedups ncu-fla ncu-fi ncu-cuda ncu-cuda-v2 ncu-export-fla ncu-export-fi nvbench-fla nvbench-fi nvbench-cuda nvbench-cuda-v2 nvbench-all nvbench-modal-fla nvbench-modal-fi nvbench-modal-all
+.PHONY: bench-fla bench-pt bench-tma bench-fi bench-cuda bench-cuda-v1c bench-cuda-v1d bench-cuda-v2 modal-fla modal-pt modal-tma modal-fi modal-cuda-v2 modal-get-logs modal-clear-logs bench-fla-all bench-tma-all clean-empty-logs proton-fla proton-example clean-triton-cache document-speedups ncu-fla ncu-fi ncu-cuda ncu-cuda-v1c ncu-cuda-v1d ncu-cuda-v2 ncu-export-fla ncu-export-fi ncu-export-cuda-v1c nvbench-fla nvbench-fi nvbench-cuda nvbench-cuda-v1c nvbench-cuda-v1d nvbench-cuda-v2 nvbench-all nvbench-modal-fla nvbench-modal-fi nvbench-modal-all
 
 export TRITON_PRINT_AUTOTUNING=1
 N ?= 0
@@ -27,6 +27,12 @@ bench-fi:
 
 bench-cuda:
 	python -m scripts.run_local --algo=cuda-v1 -n $(N)
+
+bench-cuda-v1c:
+	python -m scripts.run_local --algo=cuda-v1c -n $(N)
+
+bench-cuda-v1d:
+	python -m scripts.run_local --algo=cuda-v1d -n $(N)
 
 bench-cuda-v2:
 	python -m scripts.run_local --algo=cuda-v2 -n $(N)
@@ -123,6 +129,24 @@ ncu-cuda:
 		-fo $(NCU_RESULTS_DIR)/gdn-decode-cuda \
 		$(PYTHON) -m scripts.profile_ncu --algo=cuda-v1
 
+ncu-cuda-v1c:
+	mkdir -p $(NCU_RESULTS_DIR)
+	$(SUDO) $(NCU) --set full \
+		--import-source yes \
+		--kernel-name gdn_decode_kernel \
+		--launch-skip 3 --launch-count 1 \
+		-fo $(NCU_RESULTS_DIR)/gdn-decode-cuda-v1c \
+		$(PYTHON) -m scripts.profile_ncu --algo=cuda-v1c
+
+ncu-cuda-v1d:
+	mkdir -p $(NCU_RESULTS_DIR)
+	$(SUDO) $(NCU) --set full \
+		--import-source yes \
+		--kernel-name gdn_decode_kernel \
+		--launch-skip 3 --launch-count 1 \
+		-fo $(NCU_RESULTS_DIR)/gdn-decode-cuda-v1d \
+		$(PYTHON) -m scripts.profile_ncu --algo=cuda-v1d
+
 ncu-cuda-v2:
 	mkdir -p $(NCU_RESULTS_DIR)
 	$(SUDO) $(NCU) --set full \
@@ -147,6 +171,14 @@ ncu-export-cuda:
 		--kernel-name gdn_decode_kernel \
 		--launch-skip 3 --launch-count 1 \
 		$(PYTHON) -m scripts.profile_ncu --algo=cuda-v1 > $(NCU_TXT_DIR)/gdn-decode-cuda.txt
+
+ncu-export-cuda-v1c:
+	mkdir -p $(NCU_TXT_DIR)
+	$(SUDO) $(NCU) --set full \
+		--import-source yes \
+		--kernel-name gdn_decode_kernel \
+		--launch-skip 3 --launch-count 1 \
+		$(PYTHON) -m scripts.profile_ncu --algo=cuda-v1c > $(NCU_TXT_DIR)/gdn-decode-cuda-v1c.txt
 
 ncu-export-cuda-v3:
 	mkdir -p $(NCU_TXT_DIR)
@@ -176,6 +208,12 @@ ncu-export-fla:
 
 nvbench-cuda:
 	python -m scripts.bench_nvbench --algo=cuda-v1
+
+nvbench-cuda-v1c:
+	python -m scripts.bench_nvbench --algo=cuda-v1c
+
+nvbench-cuda-v1d:
+	python -m scripts.bench_nvbench --algo=cuda-v1d
 
 nvbench-cuda-v2:
 	python -m scripts.bench_nvbench --algo=cuda-v2
