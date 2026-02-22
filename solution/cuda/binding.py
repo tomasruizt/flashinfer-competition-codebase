@@ -28,7 +28,6 @@ def _get_fn():
     return _fn
 
 
-@register_global_func("flashinfer.kernel_cuda")
 @torch.no_grad()
 def kernel_cuda(q, k, v, state, A_log, a, dt_bias, b, scale, output, new_state):
     """DPS entry point for CUDA GDN decode kernel."""
@@ -36,3 +35,7 @@ def kernel_cuda(q, k, v, state, A_log, a, dt_bias, b, scale, output, new_state):
         scale = 1.0 / math.sqrt(q.shape[-1])
     fn = _get_fn()
     fn(q, k, v, state, A_log, a, dt_bias, b, float(scale), output, new_state)
+
+
+# Register in TVM global table (non-decorator form preserves kwargs support)
+register_global_func("flashinfer.kernel_cuda", kernel_cuda)

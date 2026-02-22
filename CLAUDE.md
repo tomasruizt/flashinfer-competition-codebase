@@ -201,8 +201,9 @@ python -m scripts.run_local --algo=pt-reference      # compiled PyTorch referenc
 | Algo          | FI-bench  | NVBench  | Speedup vs reference |
 | ------------- | --------- | -------- | -------------------- |
 | fla-recurrent | ~0.037 ms | 7.1 µs   | ~32x                 |
-| fi-baseline   | ~0.017 ms | 8.2 µs   | ~46.5x               |
-| fla-tma       | ~0.041 ms | 13.6 µs  | ~31x                 |
+| cuda-v1       | ~0.012 ms | 7.6 µs   | ~99x                 |
+| fi-baseline   | ~0.017 ms | 8.3 µs   | ~46.5x               |
+| fla-tma       | ~0.041 ms | 14.0 µs  | ~31x                 |
 
 NVBench confirms the kernel is latency-bound on B200: <2% of 7.7 TB/s bandwidth utilized. See `findings/research.md` "NVBench on B200".
 
@@ -212,6 +213,7 @@ NVBench confirms the kernel is latency-bound on B200: <2% of 7.7 TB/s bandwidth 
 - If a top-level import fails on Modal, the benchmark reports `COMPILE_ERROR` for every workload (the module can't even be loaded)
 - The benchmark framework's `COMPILE_ERROR` status is opaque — it covers import errors, torch.compile failures, and any other pre-execution errors, with no error message surfaced in the output
 - To debug Modal errors: check that all imports in `kernel.py` are available in the Modal image (`run_modal.py` `.pip_install(...)`)
+- **CUDA kernels need nvcc**: `debian_slim` lacks the CUDA toolkit. Use `Image.from_registry("nvidia/cuda:12.8.1-devel-ubuntu22.04", add_python="3.12")` as the base image so `tvm_ffi.cpp.build()` can compile `.cu` files. The `-devel` suffix is required (runtime-only images lack nvcc and headers).
 
 ## Proton Intra-Kernel Profiling
 - Triton 3.5.1 includes **Proton**, an intra-kernel profiler: `import triton.profiler as proton`
@@ -290,6 +292,7 @@ NVBench confirms the kernel is latency-bound on B200: <2% of 7.7 TB/s bandwidth 
 - Supported arg types: `TensorView`, `int32_t`, `int64_t`, `float`, `double`, `bool`, `std::string`
 - Headers: `<tvm/ffi/container/tensor.h>`, `<tvm/ffi/function.h>`, `<tvm/ffi/extra/c_env_api.h>`
 - `tvm` package is NOT installed; use `tvm_ffi` (`from tvm_ffi import register_global_func`)
+- `@register_global_func` as a decorator wraps the function as a TVM PackedFunc, which breaks `**kwargs` calls. Use non-decorator form instead: `register_global_func("name", func)`
 - `pack_solution_from_files` rejects empty files (SourceFile content >= 1 char); `__init__.py` needs a comment
 
 ## Makefile — Primary Interface

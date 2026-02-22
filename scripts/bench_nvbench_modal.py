@@ -29,7 +29,7 @@ image = (
 
 algo = os.getenv("ALGO", "all")
 
-ALGOS_AVAILABLE = ["fla-recurrent", "fi-baseline", "fla-tma"]
+ALGOS_AVAILABLE = ["fla-recurrent", "fi-baseline", "fla-tma", "cuda-v1"]
 
 
 @app.function(
