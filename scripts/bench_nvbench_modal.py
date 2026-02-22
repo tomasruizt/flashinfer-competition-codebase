@@ -31,7 +31,7 @@ image = (
 algo = os.getenv("ALGO", "all")
 
 # Algo groups for convenience
-CUDA_ALGOS = ["cuda-v1", "cuda-v1b", "cuda-v1c", "cuda-v1d", "cuda-v2", "cuda-v2b", "cuda-v2c", "cuda-v3"]
+CUDA_ALGOS = ["cuda-v1", "cuda-v4"]
 TRITON_ALGOS = ["fla-recurrent", "fi-baseline", "fla-tma"]
 ALL_ALGOS = TRITON_ALGOS + CUDA_ALGOS
 

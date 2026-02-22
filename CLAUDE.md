@@ -282,21 +282,25 @@ NVBench confirms the kernel is latency-bound on B200: <2% of 7.7 TB/s bandwidth 
 - TVM FFI integration: `TVM_FFI_DLL_EXPORT_TYPED_FUNC(kernel_cuda, ...)` in kernel.cu
 - Local binding: `binding.py` uses `tvm_ffi.cpp.build()` + `tvm_ffi.load_module()` for bench/profile scripts
 - NCU kernel name: `gdn_decode_kernel`
-- Variants: `cuda-v1` (BV=8, 128 blocks), `cuda-v1b` (BV=16, 64 blocks)
+- Only variant: `cuda-v1` (BV=8, 128 blocks)
 
-### CUDA architecture experiments (v2, v3)
-Tested alternative architectures; all slower than v1. Full analysis: `findings/research.md` under "CUDA Kernel Architecture Experiments".
-- **v2** (4 warps/block, shared memory k/q, BV_PER_WARP=32/16/8): fewer blocks = slower. Shared mem k/q deduplication doesn't help because k/q are tiny (256 bytes) and hit L1/L2 cache when redundantly loaded by v1.
-- **v3** (1 thread per V-row, state in shared memory, no warp reductions): eliminates `__shfl_xor` but pays with smem read-modify-write loops. Bank-conflict-free with +1 stride padding. Slower than v1 (7.15 vs 5.61 us).
-- **Key lesson**: at B=1, block count dominates. v1's 128 blocks maximizes SM utilization across 82 SMs. "Smarter" designs that consolidate work into fewer blocks all lose.
+### CUDA V4 kernel (cuda-v4 algo)
+Root cause of v1 being slower than Triton: same 128-block grid, but Triton uses 8 warps/block (256 threads) vs v1's 1 warp (32 threads). v4 fixes this: 1 V-row per warp, 8 warps per block, no shared memory, no cross-warp communication. NCU kernel name: `gdn_decode_v4_kernel`.
+- 8 warps, 128 blocks, 31 regs/thread, 25.6% occupancy, 1.15 IPC
+- Matches Triton FLA within noise on both RTX 3090 and B200
+- Details: `findings/research.md` under "V4 kernel: multi-warp latency hiding"
 
-| Variant  | Blocks | NVBench (RTX 3090) | vs v1 |
-| -------- | ------ | ------------------ | ----- |
-| cuda-v1  | 128    | 5.61 us            | 1.00x |
-| cuda-v1b | 64     | 5.79 us            | 0.97x |
-| cuda-v2c | 32     | 5.98 us            | 0.94x |
-| cuda-v3  | 32     | 7.15 us            | 0.78x |
-| cuda-v2  | 8      | 8.08 us            | 0.69x |
+| Variant      | Warps | Blocks | RTX 3090 | B200    |
+| ------------ | ----- | ------ | -------- | ------- |
+| FLA (Triton) | 8     | 128    | 5.25 us  | 7.1 us  |
+| cuda-v4      | 8     | 128    | 5.33 us  | 7.07 us |
+| cuda-v1      | 1     | 128    | 5.65 us  | 7.12 us |
+
+### Key lessons from CUDA experiments
+Tested 8+ variants (v1 BV sweep, v2 shared-memory k/q, v3 shared-memory state, v4 multi-warp). Only v1 and v4 kept in codebase; others removed. Full history: `findings/research.md`.
+- At B=1, **block count dominates**: designs that consolidate work into fewer blocks all lose
+- **Warp count per block** is the second lever: more warps hide memory latency (v4 vs v1)
+- Micro-optimizations (`fmaf()`, `__stcs()`) had no measurable effect at <2% BW utilization
 
 ### TVM FFI Builder (language="cuda")
 - The framework's TVMFFIBuilder compiles `.cu` files via `tvm_ffi.cpp.build()` (nvcc)
@@ -316,6 +320,7 @@ The Makefile is the main way to run things. Always prefer `make` targets over ra
 make bench-fla              # local benchmark (fla-recurrent)
 make bench-fi               # local benchmark (fi-baseline)
 make bench-cuda             # local benchmark (cuda-v1)
+make bench-cuda-v4          # local benchmark (cuda-v4, 8 warps)
 make bench-pt               # local benchmark (pt-reference)
 make modal-fla              # Modal B200 benchmark (fla-recurrent)
 make modal-fi               # Modal B200 benchmark (fi-baseline)
@@ -328,11 +333,15 @@ make proton-fla             # profile kernel with Proton
 make ncu-fla                # NCU full profile → profiles/ncu/gdn-decode-fla.ncu-rep
 make ncu-fi                 # NCU full profile → profiles/ncu/gdn-decode-fi.ncu-rep
 make ncu-cuda               # NCU full profile → profiles/ncu/gdn-decode-cuda.ncu-rep
+make ncu-cuda-v4            # NCU full profile → profiles/ncu/gdn-decode-cuda-v4.ncu-rep
 make ncu-export-fla         # NCU text export → profiles/ncu-txt/gdn-decode-fla.txt
 make ncu-export-fi          # NCU text export → profiles/ncu-txt/gdn-decode-fi.txt
+make ncu-export-cuda        # NCU text export → profiles/ncu-txt/gdn-decode-cuda.txt
+make ncu-export-cuda-v4     # NCU text export → profiles/ncu-txt/gdn-decode-cuda-v4.txt
 make nvbench-fla            # NVBench benchmark (fla-recurrent)
 make nvbench-fi             # NVBench benchmark (fi-baseline)
 make nvbench-cuda           # NVBench benchmark (cuda-v1)
+make nvbench-cuda-v4        # NVBench benchmark (cuda-v4, 8 warps)
 make clean-triton-cache     # clear ~/.triton/cache
 ```
 - Env var overrides: `NUM_WORKLOADS=3 make modal-fla` (limit workloads), `ALGO=... make modal-fla`

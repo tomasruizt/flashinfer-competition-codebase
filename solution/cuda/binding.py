@@ -33,7 +33,7 @@ def _get_fn():
 
 @torch.no_grad()
 def kernel_cuda(q, k, v, state, A_log, a, dt_bias, b, scale, output, new_state):
-    """DPS entry point for CUDA GDN decode kernel."""
+    """DPS entry point for CUDA GDN decode kernel (v1: 1 warp, BV=8)."""
     if scale is None or scale == 0.0:
         scale = 1.0 / math.sqrt(q.shape[-1])
     fn = _get_fn()
@@ -54,20 +54,8 @@ def _make_cuda_entry(symbol):
     return entry
 
 
-kernel_cuda_v1b = _make_cuda_entry("kernel_cuda_v1b")
-kernel_cuda_v1c = _make_cuda_entry("kernel_cuda_v1c")
-kernel_cuda_v1d = _make_cuda_entry("kernel_cuda_v1d")
-kernel_cuda_v2 = _make_cuda_entry("kernel_cuda_v2")
-kernel_cuda_v2b = _make_cuda_entry("kernel_cuda_v2b")
-kernel_cuda_v2c = _make_cuda_entry("kernel_cuda_v2c")
-kernel_cuda_v3 = _make_cuda_entry("kernel_cuda_v3")
+kernel_cuda_v4 = _make_cuda_entry("kernel_cuda_v4")
 
 # Register in TVM global table (non-decorator form preserves kwargs support)
 register_global_func("flashinfer.kernel_cuda", kernel_cuda)
-register_global_func("flashinfer.kernel_cuda_v1b", kernel_cuda_v1b)
-register_global_func("flashinfer.kernel_cuda_v1c", kernel_cuda_v1c)
-register_global_func("flashinfer.kernel_cuda_v1d", kernel_cuda_v1d)
-register_global_func("flashinfer.kernel_cuda_v2", kernel_cuda_v2)
-register_global_func("flashinfer.kernel_cuda_v2b", kernel_cuda_v2b)
-register_global_func("flashinfer.kernel_cuda_v2c", kernel_cuda_v2c)
-register_global_func("flashinfer.kernel_cuda_v3", kernel_cuda_v3)
+register_global_func("flashinfer.kernel_cuda_v4", kernel_cuda_v4)

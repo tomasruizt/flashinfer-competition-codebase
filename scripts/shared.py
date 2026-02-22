@@ -10,24 +10,12 @@ ALGO_ENTRY_POINTS = {
     "pt-reference": "kernel.py::kernel_pt_reference",
     "fi-baseline": "kernel.py::kernel_fi_baseline",
     "cuda-v1": "kernel.cu::kernel_cuda",
-    "cuda-v1b": "kernel.cu::kernel_cuda_v1b",
-    "cuda-v1c": "kernel.cu::kernel_cuda_v1c",
-    "cuda-v1d": "kernel.cu::kernel_cuda_v1d",
-    "cuda-v2": "kernel.cu::kernel_cuda_v2",
-    "cuda-v2b": "kernel.cu::kernel_cuda_v2b",
-    "cuda-v2c": "kernel.cu::kernel_cuda_v2c",
-    "cuda-v3": "kernel.cu::kernel_cuda_v3",
+    "cuda-v4": "kernel.cu::kernel_cuda_v4",
 }
 
 ALGO_LANGUAGES = {
     "cuda-v1": "cuda",
-    "cuda-v1b": "cuda",
-    "cuda-v1c": "cuda",
-    "cuda-v1d": "cuda",
-    "cuda-v2": "cuda",
-    "cuda-v2b": "cuda",
-    "cuda-v2c": "cuda",
-    "cuda-v3": "cuda",
+    "cuda-v4": "cuda",
 }
 
 
@@ -39,13 +27,7 @@ def load_algo_functions() -> dict:
     """
     from solution.cuda.binding import (
         kernel_cuda,
-        kernel_cuda_v1b,
-        kernel_cuda_v1c,
-        kernel_cuda_v1d,
-        kernel_cuda_v2,
-        kernel_cuda_v2b,
-        kernel_cuda_v2c,
-        kernel_cuda_v3,
+        kernel_cuda_v4,
     )
     from solution.triton.kernel import (
         kernel_fi_baseline,
@@ -58,13 +40,7 @@ def load_algo_functions() -> dict:
         "fi-baseline": kernel_fi_baseline,
         "fla-tma": kernel_fla_tma,
         "cuda-v1": kernel_cuda,
-        "cuda-v1b": kernel_cuda_v1b,
-        "cuda-v1c": kernel_cuda_v1c,
-        "cuda-v1d": kernel_cuda_v1d,
-        "cuda-v2": kernel_cuda_v2,
-        "cuda-v2b": kernel_cuda_v2b,
-        "cuda-v2c": kernel_cuda_v2c,
-        "cuda-v3": kernel_cuda_v3,
+        "cuda-v4": kernel_cuda_v4,
     }
 
 

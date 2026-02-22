@@ -1,5 +1,12 @@
 # Worklog Week 1
 
+## Worklog 2026-02-22
+
+- Today I ported the FLA kernel to CUDA with Claudes help. The goal is to control where and how the state is loaded (registers or SMEM).
+- CUDA v2 loads the state (which is 99% of the data loaded) only once into registers, and reduces with warp shuffles. However, it suffered from register pressure.
+- CUDA v3 loads the state into SMEM, so that each thread can compute without warp shuffles, but the looped SMEM access slowed down the kernel.
+- CUDA v4 is basically exactly the same config as the FLA kernel, but in CUDA.
+
 ## Worklog 2026-02-21
 
 - **FlashInfer baseline** (`fi-baseline`): Integrated FlashInfer's CuTe-DSL decode kernel (`gated_delta_rule_decode_pretranspose`) as a new algo. Achieves ~35x on RTX 3090, **~46.5x on B200** (best result so far).

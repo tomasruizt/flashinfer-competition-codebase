@@ -569,3 +569,137 @@ v3 eliminates warp reductions (30% fewer instructions than v1) but has three pro
 ### Conclusion
 
 For this kernel at B=1, the optimal strategy is to maximize block count within the v1 architecture (1 warp, K-split, state in registers). The theoretical "better" designs (fewer redundant loads, no warp reductions) all reduce block count, which is the one thing that matters most when the GPU is 95%+ idle. BV=8 with 128 blocks remains the best configuration on RTX 3090.
+
+## v1 BV Sweep + Micro-optimizations (fmaf, streaming stores)
+
+Following the v1/v2/v3 architecture experiments, we tested whether pushing v1 further (smaller BV for more blocks) or applying micro-optimizations could improve performance.
+
+### Changes applied to the v1 template
+
+**1. `fmaf()` for fused multiply-add.** NCU reported 18,432 non-fused FP32 instructions with 26% FMA fusion opportunity. Replaced separate mul+add with `fmaf()` in the delta rule dot products and outer products:
+```cpp
+// Before:
+partial += k_reg[i] * h[bv][i];
+h[bv][i] += dv * k_reg[i];
+// After:
+partial = fmaf(k_reg[i], h[bv][i], partial);
+h[bv][i] = fmaf(dv, k_reg[i], h[bv][i]);
+```
+
+**2. `__stcs()` streaming stores for state writeback.** State writeback (128 KB per head) pollutes the L2 cache with data not reused within the same kernel invocation. Used `__stcs()` (store cache streaming) to hint the hardware to bypass L2:
+```cpp
+// Before:
+*reinterpret_cast<float4*>(ht + offset) = val;
+// After:
+__stcs(reinterpret_cast<float4*>(ht + offset), val);
+```
+
+**3. BV=4 (v1c, 256 blocks) and BV=2 (v1d, 512 blocks).** Tested whether more blocks could hide memory latency better, at the cost of increased k/q/gate load redundancy (each block reloads the same k, q, gate values for its head).
+
+### NVBench results (RTX 3090, L2 flushed)
+
+All variants include fmaf + streaming store changes.
+
+| Variant  | BV | Blocks | GPU Time | BW       | vs v1 (pre-opt 5.61 us) |
+| -------- | -- | ------ | -------- | -------- | ------------------------ |
+| cuda-v1  | 8  | 128    | 5.65 us  | 187 GB/s | 0.99x                   |
+| cuda-v1c | 4  | 256    | 5.56 us  | 190 GB/s | 1.01x                   |
+| cuda-v1d | 2  | 512    | 5.54 us  | 190 GB/s | 1.01x                   |
+
+### NVBench results (B200 via Modal, L2 flushed)
+
+| Variant  | BV | Blocks | GPU Time | BW       | vs v1 (pre-opt 7.10 us) |
+| -------- | -- | ------ | -------- | -------- | ------------------------ |
+| cuda-v1  | 8  | 128    | 7.12 us  | 148 GB/s | 1.00x                   |
+| cuda-v1c | 4  | 256    | 7.32 us  | 144 GB/s | 0.97x                   |
+| cuda-v1d | 2  | 512    | 7.30 us  | 144 GB/s | 0.97x                   |
+| cuda-v1b | 16 | 64     | 8.09 us  | 130 GB/s | 0.88x                   |
+
+### Analysis
+
+**Micro-optimizations (fmaf, __stcs) had no measurable effect.** v1 measured 5.65 us vs 5.61 us pre-optimization on RTX 3090, and 7.12 us vs 7.10 us on B200. Both are within noise. Likely explanations:
+- nvcc may already emit FMA instructions for simple `a * b + c` patterns (fmaf is a hint, not a guarantee of different codegen)
+- Streaming stores help when L2 is under pressure, but at <2% bandwidth utilization the L2 is nearly empty
+
+**BV=4 and BV=2 are within noise on RTX 3090 but slightly slower on B200.** On RTX 3090, the extra blocks (256 or 512 vs 128) gave a marginal 1-2% improvement, but this is within the 8% noise margin. On B200 (148 SMs), they are 3% slower. The cost of redundant k/q/gate loads (each block loads the same 260 bytes per head) starts to matter when amortized over fewer V-rows.
+
+**The "more blocks is better" rule has a sweet spot.** The monotonic relationship (more blocks = better) observed across v1/v1b/v2/v3 does not extend below BV=8. At BV=4, each block processes only 4 V-rows (16 float4 state loads + stores) while paying the same fixed overhead for k, q, gate computation, and warp reductions. At BV=2, this overhead is amortized over just 2 rows.
+
+**BV=8 remains optimal across both GPUs.** The v1 architecture with BV=8 (128 blocks) hits the sweet spot between block count and per-block work efficiency. Further tuning of the v1 CUDA kernel is unlikely to yield significant gains at the instruction level; the kernel is fundamentally limited by the small problem size (B=1, 8 heads) leaving >95% of GPU SMs idle.
+
+## V4 kernel: multi-warp latency hiding (the real fix)
+
+### Why v1 was slower than Triton
+
+Comparing NCU profiles of FLA (Triton) and CUDA v1 revealed the root cause: both launch 128 blocks on the same (16, 8) grid, but **Triton uses 8 warps (256 threads) per block while v1 uses 1 warp (32 threads)**. The 8x more warps give the GPU scheduler work to switch to while warps stall on memory:
+
+| Metric | FLA (Triton) | CUDA v1 |
+| ------ | ------------ | ------- |
+| Block size | 256 (8 warps) | 32 (1 warp) |
+| Regs/thread | 31 | 64 |
+| IPC (active) | 0.86 | 0.26 |
+| Active warps/scheduler | 3.00 | 1.02 |
+| Eligible warps/scheduler | 0.36 | 0.17 |
+| Achieved occupancy | 24.7% | 3.3% |
+| L1 hit rate | 34.9% | 18.6% |
+| NCU duration | 3.81 us | 4.70 us |
+
+Triton executes 2.5x more instructions (195K vs 78K) but finishes 19% faster because it has 3x more active warps per scheduler for latency hiding. v1's single warp per block leaves the scheduler idle 83% of cycles.
+
+The v1/v2/v3 architecture experiments missed this because v2 added warps while *also* reducing block count (4 warps, fewer blocks). The correct experiment is to add warps while keeping block count fixed.
+
+### V4 design
+
+1 V-row per warp, NUM_WARPS warps per block, no shared memory, no cross-warp communication. Grid: `(V / NUM_WARPS, B * HV)`. Each warp independently loads state, k, q, v, gates, computes the delta rule update, and stores results. k and q are redundantly loaded by all warps (256 bytes each, hits L1/L2).
+
+With NUM_WARPS=8: grid = (16, 8) = 128 blocks, 256 threads/block = identical parallelism shape to FLA Triton. With NUM_WARPS=4: grid = (32, 8) = 256 blocks, 128 threads/block.
+
+### NCU comparison: v4 vs FLA vs v1
+
+| Metric | FLA (Triton) | CUDA v4 | CUDA v1 |
+| ------ | ------------ | ------- | ------- |
+| Duration | 3.81 us | 4.22 us | 4.70 us |
+| Block size | 256 (8 warps) | 256 (8 warps) | 32 (1 warp) |
+| Regs/thread | 31 | 31 | 64 |
+| IPC (active) | 0.86 | **1.15** | 0.26 |
+| Active warps/sched | 3.00 | **3.01** | 1.02 |
+| Eligible warps/sched | 0.36 | **0.47** | 0.17 |
+| Achieved occupancy | 24.7% | **25.6%** | 3.3% |
+| L1 hit rate | 34.9% | **65.9%** | 18.6% |
+| Elapsed cycles | 5,208 | 5,710 | 6,482 |
+| Executed instructions | 195,584 | 294,912 | 78,080 |
+| Fused FP32 insts | 22,528 | **45,056** | 16,384 |
+| Non-fused FP32 insts | 45,056 | 32,768 | 18,432 |
+| Uncoalesced excess sectors | 3.7% | **47%** | 14% |
+
+v4 matches or exceeds Triton on occupancy (25.6% vs 24.7%), IPC (1.15 vs 0.86), eligible warps (0.47 vs 0.36), and L1 hit rate (65.9% vs 34.9%). It uses the same 31 regs/thread (down from v1's 64) because `h[KVEC]` is only 4 floats instead of `h[BV][KVEC]` = 32 floats.
+
+The remaining gap (4.22 vs 3.81 us in NCU) comes from **47% uncoalesced global load sectors**. With 8 warps per block, each warp independently loads the same k and q vectors (128 bf16 values = 256 bytes each). The bf16 loads are 2 bytes per thread; with 32 threads per warp accessing consecutive bf16 elements, each 32-byte sector carries only 12.2 bytes of useful data on average (vs 28.1 for Triton). Triton's compiler likely generates wider vectorized loads or coalesces the redundant k/q loads differently.
+
+v4 also executes more total instructions (294K vs 195K for FLA, vs 78K for v1). The 8 warps each independently compute gates, load k/q, and do reductions, whereas Triton's compiler may share some of this work across warps internally.
+
+### NVBench results (RTX 3090, L2 flushed)
+
+| Variant | Warps | Blocks | GPU Time | vs FLA |
+| ------- | ----- | ------ | -------- | ------ |
+| FLA (Triton) | 8 | 128 | 5.25 us | 1.00x |
+| cuda-v4b | 4 | 256 | 5.29 us | 0.99x |
+| cuda-v4 | 8 | 128 | 5.33 us | 0.99x |
+| cuda-v1 | 1 | 128 | 5.65 us | 0.93x |
+
+### NVBench results (B200 via Modal, L2 flushed)
+
+| Variant | Warps | Blocks | GPU Time | vs v1 |
+| ------- | ----- | ------ | -------- | ----- |
+| cuda-v4 | 8 | 128 | 7.07 us | 1.008x |
+| cuda-v1 | 1 | 128 | 7.12 us | 1.00x |
+
+### Key takeaways
+
+1. **Warp count matters as much as block count for latency-bound kernels.** The v1/v2/v3 experiments showed block count dominates, but that was confounded by v2/v3 also changing other things (shared memory, cross-warp sync). v4 isolates the warp count variable: same grid, more warps, no shared memory.
+
+2. **The sweet spot is v4b (4 warps, 256 blocks) on RTX 3090.** It combines the benefits of more warps for latency hiding with more blocks for SM coverage: 256 blocks / 82 SMs = 3.1 blocks/SM, with 4 warps each = 12.4 warps/SM. v4 (8 warps, 128 blocks) trades block count for warp count and lands at about the same performance.
+
+3. **CUDA v4 closes the gap to within 1.5% of Triton on RTX 3090.** The remaining gap is from uncoalesced k/q loads (47% excess sectors). Fixing this would require shared memory for k/q broadcast (adding `__syncthreads` cost) or wider vectorized bf16 loads.
+
+4. **On B200, v4 and v1 are essentially tied (~7.1 us).** B200 has 148 SMs, so 128 blocks gives <1 block/SM on average. The latency-hiding benefit of more warps is offset by even worse SM coverage. The kernel remains fundamentally grid-size-limited on B200.
