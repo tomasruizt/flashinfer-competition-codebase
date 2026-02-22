@@ -7,6 +7,7 @@ on the remote.
 
 Usage:
     ALGO=fla-recurrent modal run -m scripts.bench_nvbench_modal
+    ALGO=cuda-all modal run -m scripts.bench_nvbench_modal
     ALGO=all modal run -m scripts.bench_nvbench_modal
 """
 
@@ -29,7 +30,10 @@ image = (
 
 algo = os.getenv("ALGO", "all")
 
-ALGOS_AVAILABLE = ["fla-recurrent", "fi-baseline", "fla-tma", "cuda-v1"]
+# Algo groups for convenience
+CUDA_ALGOS = ["cuda-v1", "cuda-v1b", "cuda-v2", "cuda-v2b", "cuda-v2c", "cuda-v3"]
+TRITON_ALGOS = ["fla-recurrent", "fi-baseline", "fla-tma"]
+ALL_ALGOS = TRITON_ALGOS + CUDA_ALGOS
 
 
 @app.function(
@@ -46,15 +50,29 @@ def run_nvbench(algo_names: list[str]):
 
     import cuda.bench as bench
 
-    from scripts.bench_nvbench import gdn_decode
+    from scripts.bench_nvbench import ALGOS, gdn_decode
+
+    # Validate all requested algos exist
+    for name in algo_names:
+        if name not in ALGOS:
+            raise ValueError(f"Unknown algo '{name}'. Available: {list(ALGOS)}")
 
     b = bench.register(gdn_decode)
     b.add_string_axis("Algo", algo_names)
     bench.run_all_benchmarks(["nvbench_modal"])
 
 
+def resolve_algo_names(algo_str: str) -> list[str]:
+    """Resolve algo string to list of algo names."""
+    if algo_str == "all":
+        return ALL_ALGOS
+    if algo_str == "cuda-all":
+        return CUDA_ALGOS
+    return [algo_str]
+
+
 @app.local_entrypoint()
 def main():
-    algo_names = ALGOS_AVAILABLE if algo == "all" else [algo]
+    algo_names = resolve_algo_names(algo)
     print(f"Running NVBench on Modal B200: {', '.join(algo_names)}")
     run_nvbench.remote(algo_names)

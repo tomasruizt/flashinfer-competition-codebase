@@ -10,10 +10,20 @@ ALGO_ENTRY_POINTS = {
     "pt-reference": "kernel.py::kernel_pt_reference",
     "fi-baseline": "kernel.py::kernel_fi_baseline",
     "cuda-v1": "kernel.cu::kernel_cuda",
+    "cuda-v1b": "kernel.cu::kernel_cuda_v1b",
+    "cuda-v2": "kernel.cu::kernel_cuda_v2",
+    "cuda-v2b": "kernel.cu::kernel_cuda_v2b",
+    "cuda-v2c": "kernel.cu::kernel_cuda_v2c",
+    "cuda-v3": "kernel.cu::kernel_cuda_v3",
 }
 
 ALGO_LANGUAGES = {
     "cuda-v1": "cuda",
+    "cuda-v1b": "cuda",
+    "cuda-v2": "cuda",
+    "cuda-v2b": "cuda",
+    "cuda-v2c": "cuda",
+    "cuda-v3": "cuda",
 }
 
 

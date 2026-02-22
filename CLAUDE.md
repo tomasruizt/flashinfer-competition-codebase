@@ -274,14 +274,29 @@ NVBench confirms the kernel is latency-bound on B200: <2% of 7.7 TB/s bandwidth 
 - Detailed analysis: `findings/fi-gdn-decode-kernel.md`
 
 ## CUDA Kernel (cuda-v1 algo)
-- Hand-written CUDA C++ port of the FLA Triton kernel
+- Hand-written CUDA C++ port of the FLA Triton kernel, templated on BV
 - Grid: `(V/BV, B*HV)` = `(16, 8)` = 128 blocks, 1 warp (32 threads) per block
-- Per-thread: KVEC=4 K-elements, `h[8][4]` state in registers (32 regs)
+- Per-thread: KVEC=4 K-elements, `h[BV][4]` state in registers (BV=8: 32 regs)
 - State loads/stores: `float4` for coalesced 128-bit access
 - Reductions: warp `__shfl_xor_sync` butterfly all-reduce (5 steps, no shared memory)
 - TVM FFI integration: `TVM_FFI_DLL_EXPORT_TYPED_FUNC(kernel_cuda, ...)` in kernel.cu
 - Local binding: `binding.py` uses `tvm_ffi.cpp.build()` + `tvm_ffi.load_module()` for bench/profile scripts
 - NCU kernel name: `gdn_decode_kernel`
+- Variants: `cuda-v1` (BV=8, 128 blocks), `cuda-v1b` (BV=16, 64 blocks)
+
+### CUDA architecture experiments (v2, v3)
+Tested alternative architectures; all slower than v1. Full analysis: `findings/research.md` under "CUDA Kernel Architecture Experiments".
+- **v2** (4 warps/block, shared memory k/q, BV_PER_WARP=32/16/8): fewer blocks = slower. Shared mem k/q deduplication doesn't help because k/q are tiny (256 bytes) and hit L1/L2 cache when redundantly loaded by v1.
+- **v3** (1 thread per V-row, state in shared memory, no warp reductions): eliminates `__shfl_xor` but pays with smem read-modify-write loops. Bank-conflict-free with +1 stride padding. Slower than v1 (7.15 vs 5.61 us).
+- **Key lesson**: at B=1, block count dominates. v1's 128 blocks maximizes SM utilization across 82 SMs. "Smarter" designs that consolidate work into fewer blocks all lose.
+
+| Variant  | Blocks | NVBench (RTX 3090) | vs v1 |
+| -------- | ------ | ------------------ | ----- |
+| cuda-v1  | 128    | 5.61 us            | 1.00x |
+| cuda-v1b | 64     | 5.79 us            | 0.97x |
+| cuda-v2c | 32     | 5.98 us            | 0.94x |
+| cuda-v3  | 32     | 7.15 us            | 0.78x |
+| cuda-v2  | 8      | 8.08 us            | 0.69x |
 
 ### TVM FFI Builder (language="cuda")
 - The framework's TVMFFIBuilder compiles `.cu` files via `tvm_ffi.cpp.build()` (nvcc)

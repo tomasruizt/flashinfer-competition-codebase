@@ -466,3 +466,106 @@ State traffic (the dominant cost) is identical regardless of BV. The kernel is l
 ## Why BK is not tunable
 
 BK must equal K=128. The matvec `k@S` (sum over K dimension) and outer product `k^T @ v` require the full K dimension. Tiling BK<128 would need two passes over the state (first to compute k@S, then to apply the update), doubling GMEM traffic. Register pressure at BK=128 is trivial: [BV=8, BK=128] = 1024 f32 / 256 threads = 4 registers/thread.
+
+## CUDA Kernel Architecture Experiments (RTX 3090)
+
+We tested three fundamentally different kernel architectures to understand what matters for this latency-bound decode kernel (B=1, 8 heads, 128x128 state per head).
+
+### Designs tested
+
+**v1 (baseline)**: 1 warp (32 threads) per block, K-split across threads, state in registers.
+Each thread owns KVEC=4 K-elements across BV V-rows. Dot products require warp `__shfl_xor` reductions. Grid: `(V/BV, B*HV)`.
+
+**v2 (shared memory k/q)**: 4 warps per block, same K-split as v1, but k and q loaded once into shared memory and reused by all warps. Templated on BV_PER_WARP (32, 16, 8). Grid: `(V/(BV*4), B*HV)`.
+
+**v3 (1-thread-per-row, smem state)**: 1 thread per V-row, full K=128 dot products per thread (no warp reductions). State lives in shared memory with +1 padding for bank-conflict-free access. Grid: `(V/32, B*HV)`.
+
+### NVBench results (RTX 3090, sequential, L2 flushed)
+
+| Variant  | BV/thread | Blocks | Regs/thread | GPU Time | BW      | vs v1 |
+| -------- | --------- | ------ | ----------- | -------- | ------- | ----- |
+| cuda-v1  | 8         | 128    | 64          | 5.61 us  | 188 GB/s| 1.00x |
+| cuda-v1b | 16        | 64     | ~96         | 5.79 us  | 182 GB/s| 0.97x |
+| cuda-v2c | 8 (x4w)   | 32     | ~120        | 5.98 us  | 176 GB/s| 0.94x |
+| cuda-v2b | 16 (x4w)  | 16     | ~170        | 6.66 us  | 158 GB/s| 0.84x |
+| cuda-v3  | 1 row     | 32     | low         | 7.15 us  | 148 GB/s| 0.78x |
+| cuda-v2  | 32 (x4w)  | 8      | 234         | 8.08 us  | 131 GB/s| 0.69x |
+
+### NVBench results (B200 via Modal, L2 flushed)
+
+| Variant  | Blocks | GPU Time | BW       | vs v1 |
+| -------- | ------ | -------- | -------- | ----- |
+| cuda-v1  | 128    | 7.10 us  | 149 GB/s | 1.00x |
+| cuda-v1b | 64     | 8.03 us  | 131 GB/s | 0.88x |
+| cuda-v2c | 32     | 8.36 us  | 126 GB/s | 0.85x |
+| cuda-v2b | 16     | 8.84 us  | 119 GB/s | 0.80x |
+| cuda-v2  | 8      | 10.51 us | 100 GB/s | 0.68x |
+| cuda-v3  | 32     | 11.07 us | 95 GB/s  | 0.64x |
+
+Same ranking as RTX 3090. B200 has 148 SMs (vs 82), making block count even more critical. v3 is relatively worse on B200 (0.64x vs 0.78x on RTX 3090) because 32 blocks covers an even smaller fraction of available SMs.
+
+### Key findings
+
+**1. Block count dominates performance for latency-bound kernels.**
+With B=1 and 8 heads, the GPU is severely underutilized no matter what. But more blocks = more SMs active = lower wall-clock time. v1's 128 blocks activates 82 SMs in wave 1 (1.56 waves total). Cutting to 8 blocks (v2, BV=32) leaves 74 of 82 SMs idle. The relationship is monotonic: 128 > 64 > 32 > 16 > 8 blocks.
+
+**2. Register pressure is the hidden killer for fewer-block designs.**
+v2 (BV_PER_WARP=32) compiled to 234 registers per thread (plan estimated 188). This caps occupancy at 2 blocks/SM (register-limited). Combined with only 8 total blocks, achieved occupancy was 8.2% vs v1's 3.2% (v1 is low too, but spreads work across more SMs).
+
+**3. Shared memory k/q deduplication does not help.**
+v1 redundantly loads k and q from global memory in all 16 blocks per head. v2 loads k/q once into shared memory, shared by 4 warps. But k and q are only 256 bytes each; the redundant loads hit L1/L2 cache and are effectively free. The cost of `__syncthreads` barriers and reduced block count far outweighs the saved bandwidth.
+
+**4. Shared memory state (v3) is slower than register state (v1/v2).**
+v3 eliminates warp reductions (no `__shfl_xor`) by giving each thread a full V-row. But it pays with shared memory read-modify-write loops (2 passes of 128 iterations). Even with bank-conflict-free padding (+1 stride), smem throughput cannot match register-to-register FMA throughput.
+
+**5. Tail effect vs SM coverage is a close tradeoff.**
+v1 (128 blocks) has a tail effect: wave 2 runs 46 blocks on 82 SMs (44% waste). v1b (64 blocks) fits in 0.78 waves (no tail) but covers only 78% of SMs. Result: v1 edges out v1b by 3%. The marginal SM utilization from filling more SMs in wave 1 slightly outweighs tail waste.
+
+**6. Block dispatch overhead is negligible.**
+The GigaThread Engine dispatches all blocks in a grid nearly simultaneously. The overhead for 128 blocks is ~0.5-1 us amortized, not 128x per-block cost. This is why more blocks consistently wins.
+
+**7. `__syncwarp()` is not required for single-warp blocks on current hardware.**
+Within a single warp, SIMT lockstep execution guarantees shared memory visibility without explicit fences. Removing `__syncwarp()` from v3 maintained correctness and may allow the compiler more scheduling freedom. However, this relies on hardware behavior not guaranteed by the CUDA memory model.
+
+### NCU comparison: v1 vs v2 (BV=32)
+
+| Metric                  | v1 (128 blk) | v2 (8 blk) |
+| ----------------------- | ------------ | ---------- |
+| Duration                | 4.64 us      | 9.25 us    |
+| Registers/thread        | 64           | 234        |
+| Waves per SM            | 0.10         | 0.05       |
+| Theoretical occupancy   | 33.3%        | 16.7%      |
+| Achieved occupancy      | 3.24%        | 8.21%      |
+| Memory throughput       | 120.5 GB/s   | 61.3 GB/s  |
+| Executed instructions   | 78,080       | 55,232     |
+| IPC (active)            | 0.26         | 0.65       |
+| Elapsed cycles          | 6,398        | 12,814     |
+
+v2 is more efficient per-warp (29% fewer instructions, 2.5x higher IPC) but the GPU can't use that efficiency because 74 of 82 SMs are idle.
+
+### NCU comparison: v1 vs v3 (1-thread-per-row, smem state)
+
+| Metric                  | v1 (128 blk) | v3 (32 blk, unrolled) | v3 (no unroll) |
+| ----------------------- | ------------ | --------------------- | -------------- |
+| Duration                | 4.64 us      | 7.14 us               | 11.23 us       |
+| Registers/thread        | 64           | 255 (maxed)           | 56             |
+| Local mem spill          | 0            | 256 bytes             | 0              |
+| Waves per SM            | 0.10         | 0.08                  | 0.08           |
+| Theoretical occupancy   | 33.3%        | 10.42% (smem-limited) | 10.42%         |
+| Achieved occupancy      | 3.24%        | 2.09%                 | 2.07%          |
+| Memory throughput       | 120.5 GB/s   | 81.1 GB/s             | 51.4 GB/s      |
+| Executed instructions   | 78,080       | 53,952                | 63,808         |
+| IPC (active)            | 0.26         | 0.23                  | 0.15           |
+| Elapsed cycles          | 6,398        | 9,909                 | 15,580         |
+| Top stall               | scoreboard   | fixed-latency (31%)   | fixed-latency  |
+| Smem load bank confl.   | N/A          | 1.4-way (14.7%)       | 1.4-way        |
+| Smem store bank confl.  | N/A          | 1.7-way (31.7%)       | 1.7-way        |
+
+v3 eliminates warp reductions (30% fewer instructions than v1) but has three problems:
+1. **Unrolling tradeoff**: Unrolling the 128-iteration smem loops uses all 255 registers + 256B spill, but achieves 0.23 IPC. Without unroll, registers drop to 56 (no spill) but IPC drops to 0.15 and the kernel is 60% slower. The compiler needs unrolling to interleave smem accesses across loop iterations.
+2. **Smem store bank conflicts (1.7-way)**: The collaborative state store pattern `state_smem[row * 129 + tid * 4 + i]` conflicts because multiple threads write to the same bank. The +1 stride padding only helps the per-thread compute pattern.
+3. **Fixed-latency stalls (31%)**: Smem read-modify-write chains create data dependencies (read h, multiply, write back) that the scheduler cannot hide with only 1 active warp per SM.
+
+### Conclusion
+
+For this kernel at B=1, the optimal strategy is to maximize block count within the v1 architecture (1 warp, K-split, state in registers). The theoretical "better" designs (fewer redundant loads, no warp reductions) all reduce block count, which is the one thing that matters most when the GPU is 95%+ idle. BV=8 with 128 blocks remains the best configuration on RTX 3090.
