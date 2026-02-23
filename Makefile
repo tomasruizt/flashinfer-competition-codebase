@@ -75,9 +75,10 @@ proton-fla:
 	@echo "\n=== Scope-level breakdown (normalized cycles) ==="
 	# script -q wraps in a pseudo-TTY so proton-viewer keeps colors through tee
 	script -q -c "proton-viewer -m normalized_cycles profiles/gdn_decode.hatchet" /dev/null | tee profiles/gdn_decode_scopes.txt
-	python -m scripts.profile_proton --pcsampling --iters 10
-	@echo "\n=== Line-by-line breakdown (PC sampling %) ==="
-	script -q -c "proton-viewer -m num_samples/% profiles/gdn_decode_lines.hatchet -i profile" /dev/null | tee profiles/gdn_decode_lines.txt
+	# Had to disable the lines below because it was incompatible with CUDA 13
+	# python -m scripts.profile_proton --pcsampling --iters 10
+	# @echo "\n=== Line-by-line breakdown (PC sampling %) ==="
+	# script -q -c "proton-viewer -m num_samples/% profiles/gdn_decode_lines.hatchet -i profile" /dev/null | tee profiles/gdn_decode_lines.txt
 
 clean-empty-logs:
 	find logs/fib-bench logs/fib-bench-modal -empty -name '*.log' -delete 2>/dev/null; true
