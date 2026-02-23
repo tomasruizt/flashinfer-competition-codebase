@@ -278,6 +278,7 @@ NVBench confirms the kernel is latency-bound on B200: <2% of 7.7 TB/s bandwidth 
 - Grid: `(V/BV, B*HV)` = `(16, 8)` = 128 blocks, 1 warp (32 threads) per block
 - Per-thread: KVEC=4 K-elements, `h[BV][4]` state in registers (BV=8: 32 regs)
 - State loads/stores: `float4` for coalesced 128-bit access
+- bf16 loads (q/k/v): vectorized via `uint2` (8-byte) and `uint4` (16-byte) reinterpret-cast
 - Reductions: warp `__shfl_xor_sync` butterfly all-reduce (5 steps, no shared memory)
 - TVM FFI integration: `TVM_FFI_DLL_EXPORT_TYPED_FUNC(kernel_cuda, ...)` in kernel.cu
 - Local binding: `binding.py` uses `tvm_ffi.cpp.build()` + `tvm_ffi.load_module()` for bench/profile scripts
@@ -286,9 +287,10 @@ NVBench confirms the kernel is latency-bound on B200: <2% of 7.7 TB/s bandwidth 
 
 ### CUDA V4 kernel (cuda-v4 algo)
 Root cause of v1 being slower than Triton: same 128-block grid, but Triton uses 8 warps/block (256 threads) vs v1's 1 warp (32 threads). v4 fixes this: 1 V-row per warp, 8 warps per block, no shared memory, no cross-warp communication. NCU kernel name: `gdn_decode_v4_kernel`.
-- 8 warps, 128 blocks, 31 regs/thread, 25.6% occupancy, 1.15 IPC
+- 8 warps, 128 blocks, 28 regs/thread, 25.4% occupancy, 1.16 IPC
+- bf16 loads vectorized: `uint2` for q/k (8-byte), eliminating 47% excessive sectors
 - Matches Triton FLA within noise on both RTX 3090 and B200
-- Details: `findings/research.md` under "V4 kernel: multi-warp latency hiding"
+- Details: `findings/research.md` under "V4 kernel: multi-warp latency hiding" and "Vectorized bf16 loads"
 
 | Variant      | Warps | Blocks | RTX 3090 | B200    |
 | ------------ | ----- | ------ | -------- | ------- |
@@ -300,6 +302,7 @@ Root cause of v1 being slower than Triton: same 128-block grid, but Triton uses 
 Tested 10+ variants (v1 BV sweep, v2 shared-memory k/q, v3 shared-memory state, v4 multi-warp, v5 cache hints, v6 cp.async). Only v1 and v4 kept in codebase; others removed. Full history: `findings/research.md`.
 - At B=1, **block count dominates**: designs that consolidate work into fewer blocks all lose
 - **Warp count per block** is the second lever: more warps hide memory latency (v4 vs v1)
+- **Vectorized bf16 loads** (`uint2`/`uint4` reinterpret-cast) fixed coalescing (12.2 → 28.1 bytes/sector for v4, 22.7 → 31.1 for v1). v4 gained ~5% NCU duration (4.32 → 4.10 us); v1 was within noise.
 - Micro-optimizations (`fmaf()`, `__stcs()`) had no measurable effect at <2% BW utilization
 - **Cache hints hurt on B200**: inline PTX `L1::no_allocate` / `L1::evict_last` made v5 3% slower than v4 (7.302 vs 7.091 us). Hardware's default policy is better for our tiny working set.
 - **SMEM staging always loses**: cp.async to SMEM (v6), shared-memory k/q (v2), shared-memory state (v3) all add latency from the extra SMEM-to-register hop

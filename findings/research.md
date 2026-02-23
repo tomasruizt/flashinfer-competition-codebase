@@ -700,9 +700,63 @@ v4 also executes more total instructions (294K vs 195K for FLA, vs 78K for v1). 
 
 2. **The sweet spot is v4b (4 warps, 256 blocks) on RTX 3090.** It combines the benefits of more warps for latency hiding with more blocks for SM coverage: 256 blocks / 82 SMs = 3.1 blocks/SM, with 4 warps each = 12.4 warps/SM. v4 (8 warps, 128 blocks) trades block count for warp count and lands at about the same performance.
 
-3. **CUDA v4 closes the gap to within 1.5% of Triton on RTX 3090.** The remaining gap is from uncoalesced k/q loads (47% excess sectors). Fixing this would require shared memory for k/q broadcast (adding `__syncthreads` cost) or wider vectorized bf16 loads.
+3. **CUDA v4 closes the gap to within 1.5% of Triton on RTX 3090.** The remaining gap was from uncoalesced k/q loads (47% excess sectors). Fixed with vectorized bf16 loads (see "Vectorized bf16 loads" section below).
 
 4. **On B200, v4 and v1 are essentially tied (~7.1 us).** B200 has 148 SMs, so 128 blocks gives <1 block/SM on average. The latency-hiding benefit of more warps is offset by even worse SM coverage. The kernel remains fundamentally grid-size-limited on B200.
+
+## Vectorized bf16 loads (v1 + v4)
+
+### Problem
+
+NCU showed v4 had 47% excessive sectors from uncoalesced global loads (12.2 of 32 bytes utilized per sector). The root cause: individual `__nv_bfloat16` loads (2 bytes each). With KVEC=4 elements per thread at stride 8 bytes between lanes, each 2-byte scalar load wastes 75% of the 32-byte cache sector.
+
+v1 had the same issue (22.7/32 bytes for loads, 14% excessive sectors), plus 8 individual bf16 scalar loads for the v vector (broadcast, so coalescing is fine but instruction count is high).
+
+### Fix
+
+Replaced scalar bf16 loads with vectorized wide loads:
+- **q/k (both v1 and v4)**: 4 x 2-byte scalar `__nv_bfloat16` loads replaced with 1 x 8-byte `uint2` load, then reinterpret-cast to `__nv_bfloat162` pairs for unpacking.
+- **v (v1 only)**: 8 x 2-byte scalar loads replaced with 1 x 16-byte `uint4` load.
+
+Alignment is guaranteed: `k_base = lane * 4`, byte offset = `lane * 8`, always 8-byte aligned for `uint2`. For v1's v load, `i_v * BV * 2` is always 16-byte aligned (BV=8).
+
+### NCU results (RTX 3090)
+
+**v4 kernel:**
+
+| Metric | Before | After | Change |
+|--------|--------|-------|--------|
+| Duration | 4.32 us | 4.10 us | -5.1% |
+| Global load bytes/sector | 12.2 / 32 | 28.1 / 32 | +130% |
+| Excessive sectors | 49,152 (47%) | 0 | Eliminated |
+| Memory throughput | 126.70 GB/s | 146.81 GB/s | +15.9% |
+| Executed instructions | 294,912 | 281,600 | -4.5% |
+| Registers/thread | 31 | 28 | -3 |
+| Eligible warps/scheduler | 0.44 | 0.49 | +11% |
+| L1 hit rate | 65.9% | 35.6% | Expected drop (fewer redundant hits) |
+| Global store bytes/sector | 30.2 / 32 | 10.7 / 32 | Regression (nvcc code-gen quirk) |
+
+**v1 kernel:**
+
+| Metric | Before | After | Change |
+|--------|--------|-------|--------|
+| Duration | 4.70 us | 4.67 us | -0.6% (noise) |
+| Global load bytes/sector | 22.7 / 32 | 31.1 / 32 | +37% (near-perfect) |
+| Excessive sectors | 6,144 (14%) | 0 | Eliminated |
+| Memory throughput | 118.29 GB/s | 145.59 GB/s | +23.1% |
+| Executed instructions | 78,080 | 75,648 | -3.1% |
+| Registers/thread | 64 | 64 | Same |
+| Global store bytes/sector | 30.2 / 32 | 30.2 / 32 | Same (no regression) |
+
+### Key lessons
+
+1. **Vectorized loads fix coalescing and give a small wall-clock win for v4.** v4 improved 5% in NCU duration (4.32 → 4.10 us); v1 was within noise (4.70 → 4.67 us). The load efficiency gains were dramatic (12.2 → 28.1 bytes/sector for v4, 22.7 → 31.1 for v1), but at <2% DRAM bandwidth utilization the wall-clock gains are modest. The kernel remains fundamentally latency-bound.
+
+2. **L1 hit rate is misleading for scalar loads.** v4's 65.9% L1 hit rate before the fix looked healthy, but it was actually pathological: narrow 2-byte loads were repeatedly hitting the same 32-byte cache lines, inflating the hit rate while wasting bandwidth. After vectorization, the hit rate dropped to 35.6% (matching FLA) because each load now fetches all its data in one shot.
+
+3. **nvcc may reorganize stores when register pressure changes.** v4's store efficiency regressed from 30.2/32 to 10.7/32 despite identical store code. The only change was the load path, which reduced registers from 31 to 28. The compiler likely broke the `float4` store into narrower stores under different register allocation. v1 (64 regs, unchanged) had no store regression. Verify with `cuobjdump --dump-sass` if needed.
+
+4. **`uint2` reinterpret-cast is the right idiom for bf16x4 loads.** The pattern `uint2 raw = *(uint2*)ptr; __nv_bfloat162 pair = *(bfloat162*)&raw.x` guarantees a single 8-byte load instruction. Loading via `__nv_bfloat162*` directly would produce two 4-byte loads (not guaranteed to merge). For bf16x8 (v1's v load), use `uint4`.
 
 ## Competition pattern analysis (gpumode NVFP4 competition)
 
