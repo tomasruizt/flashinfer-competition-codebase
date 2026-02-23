@@ -22,6 +22,7 @@ def _get_mod():
         lib_path = tvm_ffi.cpp.build(
             name="gdn_decode_cuda_local",
             cuda_files=[_CUDA_SRC],
+            extra_cuda_cflags=["--use_fast_math"],
         )
         _mod = tvm_ffi.load_module(lib_path)
     return _mod

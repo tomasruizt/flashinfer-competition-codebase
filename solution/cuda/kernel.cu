@@ -8,6 +8,11 @@
  *       Matches Triton FLA parallelism (3x more active warps per scheduler).
  *
  * Uses TVM FFI for framework integration (compiled by TVMFFIBuilder).
+ *
+ * Fast math: __expf/__logf intrinsics and --use_fast_math are already applied.
+ * Benchmarked on both RTX 3090 and B200: no measurable effect (gate math is
+ * fully hidden under state memory latency). See findings/research.md.
+ * We keep it to prevent future readers from wasting time trying to "optimize" the math.
  */
 
 #include <cuda_bf16.h>
@@ -127,9 +132,9 @@ __global__ void gdn_decode_kernel(
     const float b_b = __bfloat162float(b_gate[i_n * HV + i_hv]);
 
     const float x = b_a + b_dt;
-    const float sp = (x > 20.0f) ? x : logf(1.0f + expf(x)); // softplus
-    const float g = expf(-expf(b_A) * sp);                   // decay gate
-    const float beta = 1.0f / (1.0f + expf(-b_b));           // sigmoid
+    const float sp = (x > 20.0f) ? x : __logf(1.0f + __expf(x)); // softplus
+    const float g = __expf(-__expf(b_A) * sp);                   // decay gate
+    const float beta = __frcp_rn(1.0f + __expf(-b_b));           // sigmoid
 
 // --- Decay state: h *= g ---
 #pragma unroll
@@ -335,9 +340,9 @@ __global__ __launch_bounds__(NUM_WARPS *WARP_SIZE) void gdn_decode_v4_kernel(
     const float b_b = __bfloat162float(b_gate[i_n * HV + i_hv]);
 
     const float x = b_a + b_dt;
-    const float sp = (x > 20.0f) ? x : logf(1.0f + expf(x));
-    const float g = expf(-expf(b_A) * sp);
-    const float beta = 1.0f / (1.0f + expf(-b_b));
+    const float sp = (x > 20.0f) ? x : __logf(1.0f + __expf(x)); // softplus
+    const float g = __expf(-__expf(b_A) * sp);                   // decay gate
+    const float beta = __frcp_rn(1.0f + __expf(-b_b));           // sigmoid
 
 // --- Decay state: h *= g ---
 #pragma unroll

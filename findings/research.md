@@ -813,3 +813,53 @@ Tested three approaches to cache control, all on the v4 architecture (8 warps, 1
 3. **Competition patterns target the wrong bottleneck.** GEMM competition kernels are bandwidth-bound or compute-bound. Our kernel is latency-bound (40x gap between theoretical minimum and actual runtime). Techniques that optimize throughput don't help with latency.
 
 4. **The compiler already handles cache well for simple access patterns.** nvcc and the hardware cache controller make good decisions for our straightforward coalesced float4 loads. Manual overrides via PTX or intrinsics add instruction overhead without improving data access timing.
+
+## Fast math intrinsics (__expf/__logf) have no effect
+
+Replaced `expf`/`logf`/`expf` with `__expf`/`__logf`/`__expf` in both V1 and V4 kernels (gate computation: softplus, decay, sigmoid). These are single SFU instructions vs multi-instruction polynomial approximations.
+
+### NCU structural changes (RTX 3090)
+
+| Metric | V1 before (expf) | V1 after (__expf) | V4 before (expf) | V4 after (__expf) |
+|---|---|---|---|---|
+| Registers/thread | 64 | 62 (-2) | 28 | 26 (-2) |
+| Executed Instructions | 75,648 | 66,944 (-11.5%) | 281,600 | 199,680 (-29%) |
+| Fused FP32 insts | 16,384 | 12,288 (-25%) | 45,056 | 12,288 (-73%) |
+| IPC Active | 0.25 | 0.20 (-20%) | 1.15 | 0.85 (-26%) |
+| Warp Cycles/Issued | 5.89 | 7.29 (+24%) | 9.77 | 13.04 (+33%) |
+
+The intrinsics reduce instruction count and registers (as expected from replacing polynomial sequences with single SFU ops), but IPC drops proportionally. Fewer instructions means less work to overlap with memory stalls. Both effects cancel out.
+
+### Benchmark results: no measurable difference
+
+**RTX 3090 (NVBench, 3 trials each):**
+
+| | V1 before (expf) | V1 after (__expf) | V4 before (expf) | V4 after (__expf) |
+|---|---|---|---|---|
+| Trial 1 | 5.725 us | 5.936 us | 5.344 us | 5.338 us |
+| Trial 2 | 5.787 us | 5.723 us | 5.305 us | 5.099 us |
+| Trial 3 | 5.687 us | 5.996 us | 5.304 us | 5.355 us |
+| **Mean** | **5.733 us** | **5.885 us** | **5.318 us** | **5.264 us** |
+
+V1: +2.7%, V4: -1.0%. Reported noise: 7-9%. Both well within noise. Ranges overlap.
+
+**B200 (Modal NVBench, 3 trials each):**
+
+| | V1 before (expf) | V1 after (__expf) | V4 before (expf) | V4 after (__expf) |
+|---|---|---|---|---|
+| Trial 1 | 7.056 us | 7.040 us | 7.234 us | 7.315 us |
+| Trial 2 | 7.491 us | 7.119 us | 7.393 us | 7.567 us |
+| Trial 3 | 7.173 us | 7.287 us | 7.399 us | 7.058 us |
+| **Mean** | **7.240 us** | **7.149 us** | **7.342 us** | **7.313 us** |
+
+V1: -1.3%, V4: -0.4%. Reported noise: 2-13%. Ranges overlap completely.
+
+### Why it doesn't matter
+
+The gate computation (softplus, decay gate, sigmoid) runs once per head and is fully independent of the state loads from DRAM (~400 cycles). Whether it takes 20 cycles (SFU) or 200 cycles (polynomial), it finishes before the state data arrives. The gate math is entirely hidden under memory latency.
+
+The NCU metrics confirm this: the intrinsics trade fewer instructions for worse IPC (less work to fill pipeline bubbles during memory stalls). These cancel out, leaving wall-clock time unchanged.
+
+### Decision
+
+Kept `__expf`/`__logf` intrinsics and added `--use_fast_math` to local builds (binding.py). No performance difference, but prevents future readers from wasting time trying to "optimize" the math. The framework's TVMFFIBuilder does not support `extra_cuda_cflags`, so `--use_fast_math` only applies to local builds; the intrinsics ensure fast math codegen regardless of compiler flags.
