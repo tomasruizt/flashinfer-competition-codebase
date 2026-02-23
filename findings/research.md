@@ -892,3 +892,128 @@ The NCU metrics confirm this: the intrinsics trade fewer instructions for worse 
 ### Decision
 
 Kept `__expf`/`__logf` intrinsics and added `--use_fast_math` to local builds (binding.py). No performance difference, but prevents future readers from wasting time trying to "optimize" the math. The framework's TVMFFIBuilder does not support `extra_cuda_cflags`, so `--use_fast_math` only applies to local builds; the intrinsics ensure fast math codegen regardless of compiler flags.
+
+## TTGIR scope analysis and Proton accuracy (RTX 3090)
+
+Dumped TTGIR via `TRITON_ALWAYS_COMPILE=1 TRITON_KERNEL_DUMP=1 TRITON_DUMP_DIR=profiles/ttgir_dump` (added to `make proton-fla`). Used the TTGIR to verify that Proton scope annotations wrap exactly the intended operations.
+
+### Scope placement: accurate, with gaps
+
+All `proton.record start/end` pairs correctly surround their intended operations in the TTGIR. However, several operations fall between scopes and are attributed only to the outer `gdn_recurrent`:
+
+| Gap (between scopes) | Operations | TTGIR lines |
+|---|---|---|
+| `load_qkv` end ... `load_decay` start | `q * scale` (splat + mulf) | 100-101 |
+| `compute_decay` end ... `state_update` start | `sigmoid(b)` (sub, exp, add, div) | 130-133 |
+| `store_output` end ... `store_final_state` start | Pointer math for `ht` | 166-170 |
+
+Sum of scopes: ~1,955 normalized cycles. Outer `gdn_recurrent`: 2,649 cycles. **~694 unattributed cycles (26%)**, with the sigmoid computation being the most substantial gap.
+
+### Proton scope breakdown (normalized cycles, RTX 3090)
+
+| Scope | Cycles | % of total |
+|---|---:|---:|
+| load_qkv | 779 | 29% |
+| compute_decay | 223 | 8% |
+| state_update | 220 | 8% |
+| compute_output | 208 | 8% |
+| load_decay | 205 | 8% |
+| store_output | 157 | 6% |
+| load_initial_state | 86 | 3% |
+| store_final_state | 76 | 3% |
+| **Unattributed** | **~694** | **26%** |
+
+### Why `load_initial_state` looks cheap (86 cycles for 4KB)
+
+The state load (8x128 f32 = 4KB from DRAM, ~400 cycle latency) appears fast because the `tt.load` has no immediate consumer inside the scope. The load is issued asynchronously; the DRAM latency is hidden by subsequent `load_qkv` and `load_decay` work.
+
+### Why `load_qkv` looks expensive (779 cycles for 528 bytes)
+
+In the TTGIR, each `tt.load` was immediately followed by `arith.extf` (bf16 to f32), creating data dependencies that serialize the loads. After splitting loads from conversions in the Triton source (issue all three loads, then convert all three), the TTGIR ordering improved, but the SASS was identical; the LLVM/PTX backend was already reordering the loads to overlap them. The 779 cycles reflect actual cold-cache DRAM round-trips for q (256B), k (256B), v (16B) after L2 flush.
+
+## NCU PC sampling stall breakdown (RTX 3090)
+
+The PC sampling data (96 samples total; NCU warned "sampling interval is larger than 10% of the workload duration") tells a **different story** from the per-warp-active stall ratios documented in the "NCU Detailed Metrics" section above.
+
+| Stall reason | PC sampling % | Per-warp-active ratio |
+|---|---:|---:|
+| wait (syncthreads/barriers) | **22.9%** | 0.38 (barrier) |
+| math_pipe_throttle | **15.6%** | n/a |
+| imc_miss (instruction cache) | **12.5%** | n/a |
+| not_selected | 11.5% | 0.61 |
+| selected (issuing, not a stall) | 10.4% | n/a |
+| dispatch_stall | 7.3% | n/a |
+| short_scoreboard | 6.3% | 1.13 |
+| drain | 6.3% | n/a |
+| no_instructions | 4.2% | n/a |
+| **long_scoreboard** | **1.0%** | **3.79** |
+| branch_resolving | 1.0% | n/a |
+| barrier | 1.0% | n/a |
+
+**Caveat**: Only 96 PC samples over a 3.94 us kernel, so each sample is ~1% of total. The per-warp-active ratios (left column in the existing NCU section) are more statistically reliable. The discrepancy likely reflects that PC sampling and per-warp-active ratios measure different things: PC sampling captures what warps are doing at random instants, while per-warp-active ratios accumulate total stall cycles.
+
+### Memory hierarchy breakdown
+
+- ~35% of sectors served by L1
+- ~38% served by L2 (after L1 miss)
+- ~27% reaches DRAM
+
+73% of traffic stays on-chip.
+
+### 28.1/32 bytes per sector (global loads)
+
+Caused by **mixed-width loads** in the SASS: `LDG.E.U16` (bf16 scalars for a_gate, b_gate), `LDG.E` (f32), `LDG.E.64`, and `LDG.E.128`. The narrow bf16 scalar loads waste most of their sector. NCU estimates only 1.3% speedup from fixing this.
+
+## The `ttg.convert_layout` barrier in the Triton kernel
+
+### The problem
+
+The output store generates a `ttg.convert_layout` + `bar.sync` (1 per kernel invocation) because of a layout mismatch:
+
+1. `b_o = tl.sum(b_h * b_q[None, :], axis=1)` reduces [BV=8, BK=128] along K, producing `[BV=8]` in `#ttg.slice<{dim=1, parent=#blocked}>` layout (each of 8 warps holds 1 element)
+2. `p_o` is constructed from `tl.arange(0, BV)` which gets `#blocked1` layout (all 8 elements packed into warp 0)
+3. The store needs matching layouts, so the compiler inserts `convert_layout` (shared memory write + `bar.sync` + shared memory read) to gather data from 8 warps into warp 0
+
+### Attempted fixes
+
+**Splitting loads from conversions**: Changed `tl.load(...).to(tl.float32)` to separate `tl.load(...)` then `.to(tl.float32)`. TTGIR ordering improved (loads grouped before conversions), but SASS was identical; the backend already reordered. No runtime change.
+
+**2D store pointer via `[:, None]`**: Constructed the output pointer as `[BV, 1]` via `base_o + o_v[:, None]` and stored `b_o[:, None]`, hoping the 2D pointer would inherit the reduce's parent layout. The compiler instead chose a different 2D layout (`blocked1 = {sizePerThread=[1,1], threadsPerWarp=[8,4], warpsPerCTA=[1,8]}`) that still requires cross-warp movement. The `bar.sync` count stayed at 1.
+
+### Why it's unavoidable in Triton
+
+The `tl.sum` reduce distributes results across warps (warp-partitioned), but any pointer constructed from `tl.arange` packs elements into fewer warps. Triton's layout optimizer always creates this mismatch because the pointer and reduce output are derived from independent tensor constructions. There is no Triton API to control tensor layouts or do per-warp stores.
+
+The CUDA v4 kernel avoids this entirely because each warp stores its own scalar directly.
+
+### Actual cost
+
+1 `bar.sync` in the PTX, costing ~30-50 cycles out of ~2871 active cycles (~1-2% of kernel time). The Proton-instrumented version has 2 `bar.sync` (the extra one is from Proton's own shared memory instrumentation).
+
+## BV=1 experiment (RTX 3090)
+
+Tested BV=1 to see if eliminating the V-dimension tiling (and thus the `convert_layout`) would help. Grid becomes (128, 8) = 1024 blocks instead of (16, 8) = 128 blocks.
+
+| Config | Blocks | Warps/block | Latency |
+|---|---|---|---|
+| **BV=8, warps=8** (baseline) | 128 | 8 | **4.3 us** |
+| BV=1, warps=1 | 1024 | 1 | 4.6 us |
+| BV=1, warps=2 | 1024 | 2 | 4.9 us |
+| BV=1, warps=4 | 1024 | 4 | 5.8 us |
+| BV=1, warps=8 | 1024 | 8 | 7.9 us |
+
+### Why BV=1 is worse
+
+1. **More warps = worse**: With BV=1, the state is [1, 128]. Adding warps splits K across warps, so both K-reductions (state_update and compute_output) become cross-warp, each adding a `bar.sync`. With 8 warps, each warp handles only 16 K-elements but pays for 2 cross-warp syncs. The original BV=8/warps=8 splits V across warps (K-reduction is warp-local) and only needs 1 `bar.sync` for the output store.
+
+2. **BV=1/warps=1 is CUDA v1 territory**: 1024 blocks x 1 warp gives the same ~12 warps/SM as 128 blocks x 8 warps, but each warp has less register-level work to interleave, so latency hiding is slightly worse.
+
+### Decision
+
+BV=8 with 8 warps remains optimal. The single `bar.sync` for convert_layout is a small price for keeping all K-reductions warp-local.
+
+## TLX (Triton Low-Level Extensions) analysis
+
+Evaluated whether [TLX](https://github.com/facebookexperimental/triton/tree/tlx) (Facebook's warp-aware Triton extension) could help. TLX provides warp specialization (`async_tasks`), TMA async loads, async Tensor Core ops (`async_dot`), named barriers, and explicit shared memory management.
+
+**Conclusion: not applicable.** TLX targets large compute/bandwidth-bound kernels (GEMM, attention). The [2-Simplicial Attention blog post](https://pytorch.org/blog/fast-2-simplicial-attention-hardware-efficient-kernels-in-tlx/) achieved 1.74x by hitting 588 TFLOPs on Tensor Cores. Our kernel runs at ~2% of peak FP32, ~16% of peak DRAM BW. TLX's warp specialization and pipelining have nothing to bite on in this regime. TLX also does not expose per-warp stores without shared memory, so it cannot eliminate the `convert_layout` barrier.

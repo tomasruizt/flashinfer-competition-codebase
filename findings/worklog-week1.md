@@ -1,5 +1,16 @@
 # Worklog Week 1
 
+## Worklog 2026-02-23
+
+CUDA micro-optimizations.
+
+- **Vectorized bf16 loads** (`uint2`/`uint4`) for q, k, v in CUDA v1 and v4. Fixed uncoalesced access patterns; v4 got ~5% speedup on NCU.
+- **Vectorized stores** in v1 (float4). No runtime change but fixed NCU warnings.
+- **Fast math** (`--use_fast_math`, `__expf`, `__fmaf_rn`): no measurable speedup, but frees 2 registers.
+- **SMEM q/k sharing in v4** (warp 0 loads into SMEM for all warps): 8.5% slower due to `__syncthreads()` cost. L1 cache was already handling the "redundant" loads efficiently. Documented and abandoned.
+- **Analyzed NVFP4 competition winners**: Conclusion: their patterns (warp specialization, TMA pipelines, mbarrier) target bandwidth/compute-bound workloads; not transferable to our latency-bound decode kernel.
+- worked time: 4h20
+
 ## Worklog 2026-02-22
 
 - Today I ported the FLA kernel to CUDA with Claudes help. The goal is to control where and how the state is loaded (registers or SMEM).

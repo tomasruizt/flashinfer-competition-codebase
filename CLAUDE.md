@@ -243,9 +243,12 @@ NVBench confirms the kernel is latency-bound on B200: <2% of 7.7 TB/s bandwidth 
 
 ### Key profiling results (RTX 3090, fla-recurrent)
 - **NCU kernel time**: 3.84 µs (benchmarks agree at ~4.3-5.1 µs after timing fix)
-- **Bottleneck**: Latency-bound (long scoreboard stalls, 0.26 waves, 23.6% occupancy, 15.6% DRAM BW)
-- **Proton scope breakdown**: `load_initial_state` ~40%, `load_qkv` ~25%, `state_update` ~15%, `store_final_state` ~15%
-- Full NCU metrics and Proton analysis: `findings/research.md` under "NCU Detailed Metrics"
+- **Bottleneck**: Latency-bound (0.26 waves, 24.8% occupancy, 15.6% DRAM BW)
+- **Proton scope breakdown** (normalized cycles): `load_qkv` 779 (29%), `compute_decay` 223 (8%), `state_update` 220 (8%), `compute_output` 208 (8%), `load_decay` 205 (8%), `store_output` 157 (6%), `load_initial_state` 86 (3%), `store_final_state` 76 (3%), unattributed ~694 (26%)
+- **TTGIR scope accuracy**: Verified via TTGIR dump. Scopes correctly wrap intended ops. Unattributed 26% comes from `q*scale`, `sigmoid(b)`, and `ht` pointer math falling between scope boundaries.
+- **`ttg.convert_layout` barrier**: The output store generates 1 `bar.sync` because the reduce distributes across 8 warps but the store pointer packs into 1 warp. Unavoidable in Triton; costs ~1-2% of kernel time. CUDA v4 avoids this natively.
+- **BV=1 doesn't help**: 1024 blocks but worse latency (4.6 us at best vs 4.3 us baseline). With multiple warps, K-reductions become cross-warp, adding more `bar.sync` than the V-dimension approach.
+- Full analysis: `findings/research.md` under "TTGIR scope analysis", "The convert_layout barrier", "BV=1 experiment"
 
 ## Triton Autotuning
 - **Avoid `@triton.autotune`** for this kernel; hardcode config at launch site (adds ~6 µs Python dispatch overhead)
@@ -305,6 +308,7 @@ Tested 10+ variants (v1 BV sweep, v2 shared-memory k/q, v3 shared-memory state, 
 - **Cache hints hurt on B200**: inline PTX `L1::no_allocate` / `L1::evict_last` made v5 3% slower than v4 (7.302 vs 7.091 us). Hardware's default policy is better for our tiny working set.
 - **SMEM staging always loses**: cp.async to SMEM (v6), shared-memory k/q on v1 (v2), shared-memory state (v3), SMEM q/k sharing on v4 all add latency. The v4 SMEM q/k experiment (warp 0 loads q/k into SMEM for all 8 warps) was 8.5% slower: `__syncthreads()` killed IPC and L1 was already serving the "redundant" loads efficiently (35.65% hit rate)
 - **Competition GEMM patterns don't transfer**: warp specialization, TMA, cache eviction policies, mbarrier pipelines all target bandwidth/compute-bound kernels, not latency-bound ones. See `findings/research.md` "Competition pattern analysis".
+- **TLX (Triton Low-Level Extensions) not applicable**: warp specialization, TMA pipelining, async Tensor Core ops target large compute-bound kernels. Our kernel runs at ~2% peak FP32. TLX also cannot eliminate the `convert_layout` barrier (no per-warp store primitive).
 
 ### TVM FFI Builder (language="cuda")
 - The framework's TVMFFIBuilder compiles `.cu` files via `tvm_ffi.cpp.build()` (nvcc)
