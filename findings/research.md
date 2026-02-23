@@ -758,6 +758,34 @@ Alignment is guaranteed: `k_base = lane * 4`, byte offset = `lane * 8`, always 8
 
 4. **`uint2` reinterpret-cast is the right idiom for bf16x4 loads.** The pattern `uint2 raw = *(uint2*)ptr; __nv_bfloat162 pair = *(bfloat162*)&raw.x` guarantees a single 8-byte load instruction. Loading via `__nv_bfloat162*` directly would produce two 4-byte loads (not guaranteed to merge). For bf16x8 (v1's v load), use `uint4`.
 
+## Vectorized output stores (v1): no effect
+
+Tested three output store strategies for v1's `out[BV=8]` bf16 writes (thread 0 writes all 8 values after warp_reduce_sum):
+
+1. **Baseline**: 8 scalar bf16 stores by thread 0 inside unrolled loop (`o_ptr[bv] = __float2bfloat16(out_bv)`)
+2. **Packed uint4**: Accumulate 8 results, pack via `__floats2bfloat162_rn` into `uint4`, single 16-byte store by thread 0
+3. **8-thread scatter**: 8 threads each store 1 bf16 (`if (tid < BV) o_ptr[tid] = __float2bfloat16(out_vals[tid])`)
+
+### NCU results (RTX 3090)
+
+| Metric | Baseline | Packed uint4 | 8-thread scatter |
+|--------|----------|-------------|-----------------|
+| Duration | 4.93 us | 4.96 us | 4.90 us |
+| Executed Instructions | 68,992 | 67,456 | 69,248 |
+| Store efficiency | 30.2 B/sector | 31.9 B/sector | 31.9 B/sector |
+| Branch efficiency | 100% | 50% | 50% |
+| Avg Active Threads | 32 | 31.53 | 30.92 |
+| L1 Hit Rate | 2.95% | 0.52% | 0.52% |
+| Registers/thread | 63 | 63 | 63 |
+
+### Key lessons
+
+1. **Output stores are not on the critical path.** All three approaches are within noise (~4.9 us). The output is 8 x 2B = 16 bytes per block; state traffic is 4KB per block. Optimizing 0.4% of memory traffic is pointless.
+
+2. **Both alternatives introduced branch divergence.** The baseline's `if (tid == 0)` inside a tight unrolled loop gets predicated by the compiler (no actual branch). The alternatives put larger code blocks behind a condition, forcing real branches with 50% efficiency. This is a net negative for code quality with zero performance benefit.
+
+3. **Kept the 8-thread scatter** as the final version. Slightly cleaner code (no packing boilerplate), same performance, same divergence as packed uint4.
+
 ## Competition pattern analysis (gpumode NVFP4 competition)
 
 Analyzed 4 winning kernels from the gpumode NVFP4 competition targeting Blackwell B200. Files in `examples/gpumode-nvfp4-competition/`.
