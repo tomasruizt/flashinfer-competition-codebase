@@ -3,7 +3,7 @@
 #   NUM_WORKLOADS=3 make modal-fla
 # TRITON_PRINT_AUTOTUNING is always on (logs go to logs/fib-bench/)
 
-.PHONY: bench-fla bench-pt bench-tma bench-fi bench-cuda bench-cuda-v4 modal-fla modal-pt modal-tma modal-fi modal-cuda modal-get-logs modal-clear-logs bench-fla-all bench-tma-all clean-empty-logs proton-fla proton-example clean-triton-cache document-speedups ncu-fla ncu-fi ncu-cuda ncu-cuda-v4 ncu-export-fla ncu-export-fi ncu-export-cuda ncu-export-cuda-v4 nvbench-fla nvbench-fi nvbench-cuda nvbench-cuda-v4 nvbench-all nvbench-modal-fla nvbench-modal-fi nvbench-modal-cuda-all nvbench-modal-all
+.PHONY: bench-fla bench-pt bench-tma bench-fi bench-cuda bench-cuda-v4 modal-fla modal-pt modal-tma modal-fi modal-cuda modal-get-logs modal-clear-logs bench-fla-all bench-tma-all clean-empty-logs proton-fla proton-example clean-triton-cache document-speedups ncu-fla ncu-fi ncu-cuda ncu-cuda-v4 ncu-export-fla ncu-export-fi ncu-export-cuda ncu-export-cuda-v4 nvbench nvbench-fla nvbench-fi nvbench-cuda nvbench-cuda-v4 nvbench-all nvbench-modal-fla nvbench-modal-fi nvbench-modal-cuda-all nvbench-modal-all
 
 export TRITON_PRINT_AUTOTUNING=1
 N ?= 0
@@ -153,11 +153,16 @@ ncu-export-cuda-v4:
 		--launch-skip 3 --launch-count 1 \
 		$(PYTHON) -m scripts.profile_ncu --algo=cuda-v4 > $(NCU_TXT_DIR)/gdn-decode-cuda-v4.txt
 
+nvbench:
+	python -m scripts.bench_nvbench --algo=$(ALGO)
+
 nvbench-cuda:
 	python -m scripts.bench_nvbench --algo=cuda-v1
 
 nvbench-cuda-v4:
 	python -m scripts.bench_nvbench --algo=cuda-v4
+
+
 
 nvbench-fla:
 	python -m scripts.bench_nvbench --algo=fla-recurrent
@@ -167,6 +172,9 @@ nvbench-fi:
 
 nvbench-all:
 	python -m scripts.bench_nvbench --algo=all
+
+nvbench-modal:
+	ALGO=$(ALGO) modal run -m scripts.bench_nvbench_modal
 
 nvbench-modal-fla:
 	ALGO=fla-recurrent modal run -m scripts.bench_nvbench_modal

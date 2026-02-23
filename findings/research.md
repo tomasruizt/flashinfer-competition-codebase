@@ -703,3 +703,59 @@ v4 also executes more total instructions (294K vs 195K for FLA, vs 78K for v1). 
 3. **CUDA v4 closes the gap to within 1.5% of Triton on RTX 3090.** The remaining gap is from uncoalesced k/q loads (47% excess sectors). Fixing this would require shared memory for k/q broadcast (adding `__syncthreads` cost) or wider vectorized bf16 loads.
 
 4. **On B200, v4 and v1 are essentially tied (~7.1 us).** B200 has 148 SMs, so 128 blocks gives <1 block/SM on average. The latency-hiding benefit of more warps is offset by even worse SM coverage. The kernel remains fundamentally grid-size-limited on B200.
+
+## Competition pattern analysis (gpumode NVFP4 competition)
+
+Analyzed 4 winning kernels from the gpumode NVFP4 competition targeting Blackwell B200. Files in `examples/gpumode-nvfp4-competition/`.
+
+### Patterns identified in competition winners
+
+1. **Warp specialization**: TMA warp, MMA warp, epilogue warps (nvfp4_gemm.py)
+2. **TMEM + tcgen05 MMA**: Blackwell tensor core access (nvfp4_gemm.py, nvfp4_dual_gemm.py)
+3. **TMA (Tensor Memory Accelerator)**: Hardware-driven async bulk copy with tensor map descriptors (nvfp4_gemm.py, nvfp4_group_gemm.py)
+4. **L1/L2 cache eviction policies via inline PTX**: `ld.global.L1::no_allocate` for streaming data, `ld.global.L1::evict_last` for reused data (nvfp4_gemv.py)
+5. **Multi-stage mbarrier pipeline**: Overlapping loads with compute (nvfp4_gemm.py)
+6. **Per-problem-size config tuning**: Config maps keyed by (M, N, K) (nvfp4_dual_gemm.py)
+7. **CTA clusters**: `__cluster_dims__` for shared L2 residency (nvfp4_group_gemm.py)
+
+### Why these patterns don't transfer to GDN decode
+
+All competition kernels target GEMM/GEMV: compute-bound or bandwidth-bound workloads processing large matrices. Our GDN decode kernel is latency-bound with tiny data (1 MB total, <2% bandwidth utilization). The patterns that help large workloads are irrelevant or counterproductive for our kernel:
+
+- **Warp specialization / TMA / mbarrier**: Designed to overlap large data transfers with long-running compute. Our compute is ~70 cycles (gate math); nothing to overlap with.
+- **TMEM / tensor cores**: Our matvecs are 128-element vectors, too small for tensor core tiles (min 16x16).
+- **CTA clusters**: Useful for sharing data across blocks via L2. Our blocks are independent (different V-rows, different heads).
+- **Per-problem-size tuning**: All 20 workloads have identical shapes (B=1, all dimensions fixed).
+
+### Cache hint experiments (v5 kernel, removed)
+
+Tested three approaches to cache control, all on the v4 architecture (8 warps, 128 blocks):
+
+**v5 attempt 1: CUDA intrinsics (`__ldcs` / `__stcs`)**
+- State loads: `__ldcs` (streaming, bypass L1 entirely)
+- State stores: `__stcs` (streaming store, same as v4)
+- q/k: default `.ca` (cache all levels)
+- Result: no measurable difference vs v4 on RTX 3090 (NVBench: 5.273 vs 5.324 us, ~1% within 7% noise)
+
+**v5 attempt 2: inline PTX with fine-grained eviction hints**
+- State loads: `ld.global.L1::no_allocate.v4.f32` (don't allocate in L1 on miss, but hit if already there)
+- q/k loads: `ld.global.L1::evict_last.v2.b32` (pin in L1, evict last)
+- State stores: `st.global.cs.v4.f32` (streaming, bypass caches)
+- Result on RTX 3090: 5.203 vs 5.331 us, ~2.4% faster but within noise
+- **Result on B200: 7.302 vs 7.091 us, ~3% SLOWER.** Hardware's default cache management outperforms manual hints.
+
+**v6 (removed): cp.async to SMEM**
+- Used inline PTX `cp.async.cg.shared.global` to async-copy state into shared memory while computing gates
+- Same mistake as v2/v3: the extra SMEM-to-register hop adds latency that outweighs any overlap benefit
+- Result on RTX 3090: 5.479 vs 5.379 us, ~2% slower (NVBench)
+- Removed from codebase without testing on B200
+
+### Key lessons from competition pattern experiments
+
+1. **Cache hints are counterproductive for tiny working sets.** With 4KB state per block vs 128KB L1 (RTX 3090) or 228KB (B200), there is no eviction pressure. The default cache policy is optimal.
+
+2. **SMEM staging always loses for this kernel.** Tested three times (v2 shared-memory k/q, v3 shared-memory state, v6 cp.async to SMEM). The extra SMEM-to-register hop adds ~30 cycles per access that cannot be hidden.
+
+3. **Competition patterns target the wrong bottleneck.** GEMM competition kernels are bandwidth-bound or compute-bound. Our kernel is latency-bound (40x gap between theoretical minimum and actual runtime). Techniques that optimize throughput don't help with latency.
+
+4. **The compiler already handles cache well for simple access patterns.** nvcc and the hardware cache controller make good decisions for our straightforward coalesced float4 loads. Manual overrides via PTX or intrinsics add instruction overhead without improving data access timing.

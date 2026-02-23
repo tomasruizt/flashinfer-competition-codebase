@@ -297,10 +297,13 @@ Root cause of v1 being slower than Triton: same 128-block grid, but Triton uses 
 | cuda-v1      | 1     | 128    | 5.65 us  | 7.12 us |
 
 ### Key lessons from CUDA experiments
-Tested 8+ variants (v1 BV sweep, v2 shared-memory k/q, v3 shared-memory state, v4 multi-warp). Only v1 and v4 kept in codebase; others removed. Full history: `findings/research.md`.
+Tested 10+ variants (v1 BV sweep, v2 shared-memory k/q, v3 shared-memory state, v4 multi-warp, v5 cache hints, v6 cp.async). Only v1 and v4 kept in codebase; others removed. Full history: `findings/research.md`.
 - At B=1, **block count dominates**: designs that consolidate work into fewer blocks all lose
 - **Warp count per block** is the second lever: more warps hide memory latency (v4 vs v1)
 - Micro-optimizations (`fmaf()`, `__stcs()`) had no measurable effect at <2% BW utilization
+- **Cache hints hurt on B200**: inline PTX `L1::no_allocate` / `L1::evict_last` made v5 3% slower than v4 (7.302 vs 7.091 us). Hardware's default policy is better for our tiny working set.
+- **SMEM staging always loses**: cp.async to SMEM (v6), shared-memory k/q (v2), shared-memory state (v3) all add latency from the extra SMEM-to-register hop
+- **Competition GEMM patterns don't transfer**: warp specialization, TMA, cache eviction policies, mbarrier pipelines all target bandwidth/compute-bound kernels, not latency-bound ones. See `findings/research.md` "Competition pattern analysis".
 
 ### TVM FFI Builder (language="cuda")
 - The framework's TVMFFIBuilder compiles `.cu` files via `tvm_ffi.cpp.build()` (nvcc)
@@ -338,13 +341,14 @@ make ncu-export-fla         # NCU text export → profiles/ncu-txt/gdn-decode-fl
 make ncu-export-fi          # NCU text export → profiles/ncu-txt/gdn-decode-fi.txt
 make ncu-export-cuda        # NCU text export → profiles/ncu-txt/gdn-decode-cuda.txt
 make ncu-export-cuda-v4     # NCU text export → profiles/ncu-txt/gdn-decode-cuda-v4.txt
-make nvbench-fla            # NVBench benchmark (fla-recurrent)
-make nvbench-fi             # NVBench benchmark (fi-baseline)
-make nvbench-cuda           # NVBench benchmark (cuda-v1)
-make nvbench-cuda-v4        # NVBench benchmark (cuda-v4, 8 warps)
+ALGO=cuda-v4 make nvbench   # NVBench single algo (local)
+ALGO=cuda-v1,cuda-v4 make nvbench  # NVBench multi-algo in one table
+ALGO=cuda-v4 make nvbench-modal    # NVBench on Modal B200
+make nvbench-all            # NVBench all algos (local)
 make clean-triton-cache     # clear ~/.triton/cache
 ```
 - Env var overrides: `NUM_WORKLOADS=3 make modal-fla` (limit workloads), `ALGO=... make modal-fla`
+- `ALGO` accepts comma-separated values for multi-algo NVBench: `ALGO=cuda-v1,cuda-v4 make nvbench`
 - `-n 3` flag on local scripts: `python -m scripts.run_local --algo=fla-recurrent -n 3`
 - Local GPU: RTX 3090 (Ampere SM86) — cannot run Hopper-only features (TMA, warpgroup MMA, Gluon matmul examples)
 

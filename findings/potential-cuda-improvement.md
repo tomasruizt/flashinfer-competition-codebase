@@ -358,13 +358,37 @@ def gdn_decode_kernel(
 
 **Use `tl.constexpr`** for H, V, K so Triton unrolls all loops at compile time.
 
-**Eviction policies**:
-```python
-S_tile = tl.load(S_ptr + offsets, eviction_policy='evict_last')   # keep S in cache
-k_vec = tl.load(k_ptr + offsets, eviction_policy='evict_first')   # k used once
-```
+**Eviction policies**: Tested extensively and found to be ineffective (see below).
 
 **Limitation**: Triton manages registers implicitly. You cannot force S into registers -- Triton's compiler decides whether to use registers or shared memory. For maximum control over the register-vs-shared-memory decision, raw CUDA is the way to go.
+
+---
+
+## 9. What We Tested and Found Ineffective
+
+### 9.1 Cache eviction hints (Section 4.10 eviction policies)
+
+Tested three cache hint strategies on the CUDA v4 kernel (8 warps, 128 blocks):
+
+1. **`__ldcs` (streaming, bypass L1)** for state loads: no measurable effect on RTX 3090
+2. **Inline PTX `ld.global.L1::no_allocate`** for state + **`ld.global.L1::evict_last`** for q/k: 3% **slower** on B200 (7.302 vs 7.091 us)
+3. **`st.global.cs`** (streaming store) for state: no effect vs default stores
+
+**Why**: With 4KB state per block and 128-228KB L1, there is zero eviction pressure. The hardware's default cache policy is already optimal. Manual hints add instruction overhead without changing access patterns.
+
+### 9.2 cp.async pipelining to shared memory
+
+Used inline PTX `cp.async.cg.shared.global` to asynchronously copy state into SMEM while computing gates (~70 cycles of exp/log/sigmoid). Then read state from SMEM to registers.
+
+**Result**: ~2% slower than direct loads (NVBench 5.479 vs 5.379 us on RTX 3090). Same lesson as the v2/v3 CUDA experiments: the extra SMEM-to-register hop (~30 cycles/access) outweighs any overlap benefit.
+
+### 9.3 L2 persistence (Section 4.2)
+
+Not tested directly, but the benchmark flushes L2 between iterations. In production (sequential decode tokens), L2 persistence would help keep state warm between invocations. However, the benchmark's cold-start regime is a better model for worst-case latency, and the kernel is already latency-bound even with L2 hits.
+
+### 9.4 Competition patterns (GEMM/GEMV winners)
+
+Analyzed 4 winning kernels from the gpumode NVFP4 competition (warp specialization, TMA, TMEM/tcgen05, mbarrier pipelines, CTA clusters). None applicable: they target bandwidth/compute-bound GEMM, while our kernel is latency-bound with 1 MB total data and <2% bandwidth utilization. Full analysis in `findings/research.md` "Competition pattern analysis".
 
 ---
 

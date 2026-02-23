@@ -68,7 +68,7 @@ def resolve_algo_names(algo_str: str) -> list[str]:
         return ALL_ALGOS
     if algo_str == "cuda-all":
         return CUDA_ALGOS
-    return [algo_str]
+    return [a.strip() for a in algo_str.split(",")]
 
 
 @app.local_entrypoint()

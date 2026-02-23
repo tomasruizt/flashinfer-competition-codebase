@@ -57,12 +57,15 @@ def main():
     parser = argparse.ArgumentParser(description="NVBench GDN decode benchmark")
     parser.add_argument(
         "--algo",
-        choices=list(ALGOS) + ["all"],
         default="all",
+        help="Algorithm(s) to benchmark. Comma-separated or 'all' (default: all)",
     )
     args, remaining = parser.parse_known_args()
 
-    algo_names = list(ALGOS) if args.algo == "all" else [args.algo]
+    if args.algo == "all":
+        algo_names = list(ALGOS)
+    else:
+        algo_names = [a.strip() for a in args.algo.split(",")]
 
     b = bench.register(gdn_decode)
     b.add_string_axis("Algo", algo_names)
