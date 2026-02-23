@@ -259,9 +259,13 @@ def fused_recurrent_gated_delta_rule_fwd_kernel(
     # Load inputs (single token)
     if PROFILE:
         pl.enter_scope("load_qkv")
-    b_q = tl.load(p_q, mask=mask_k, other=0).to(tl.float32)  # [BK] — query
-    b_k = tl.load(p_k, mask=mask_k, other=0).to(tl.float32)  # [BK] — key
-    b_v = tl.load(p_v, mask=mask_v, other=0).to(tl.float32)  # [BV] — value
+    # Issue all loads before converting, so they can overlap in flight
+    b_q = tl.load(p_q, mask=mask_k, other=0)  # [BK] bf16
+    b_k = tl.load(p_k, mask=mask_k, other=0)  # [BK] bf16
+    b_v = tl.load(p_v, mask=mask_v, other=0)  # [BV] bf16
+    b_q = b_q.to(tl.float32)
+    b_k = b_k.to(tl.float32)
+    b_v = b_v.to(tl.float32)
     if PROFILE:
         pl.exit_scope("load_qkv")
 

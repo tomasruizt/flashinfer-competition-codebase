@@ -13,6 +13,7 @@ PYTHON := $(shell which python)
 SUDO=
 NCU_RESULTS_DIR := profiles/ncu
 NCU_TXT_DIR := profiles/ncu-txt
+TRITON_PROFILE_ENV := TRITON_ALWAYS_COMPILE=1 TRITON_KERNEL_DUMP=1 TRITON_DUMP_DIR=profiles/ttgir_dump
 
 bench-fla:
 	python -m scripts.run_local --algo=fla-recurrent -n $(N)
@@ -70,8 +71,8 @@ modal-clear-logs:
 	modal volume rm -r flashinfer-trace logs/
 
 proton-fla:
-	python -m scripts.profile_proton
-	python -m scripts.profile_proton --op-measure
+	$(TRITON_PROFILE_ENV) python -m scripts.profile_proton
+	$(TRITON_PROFILE_ENV) python -m scripts.profile_proton --op-measure
 	@echo "\n=== Scope-level breakdown (normalized cycles) ==="
 	# script -q wraps in a pseudo-TTY so proton-viewer keeps colors through tee
 	script -q -c "proton-viewer -m normalized_cycles profiles/gdn_decode.hatchet" /dev/null | tee profiles/gdn_decode_scopes.txt
