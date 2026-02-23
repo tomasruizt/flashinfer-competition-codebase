@@ -303,7 +303,7 @@ Tested 10+ variants (v1 BV sweep, v2 shared-memory k/q, v3 shared-memory state, 
 - **Vectorized bf16 loads** (`uint2`/`uint4`) fixed coalescing, gave v4 ~5% NCU speedup. Details: `findings/research.md` "Vectorized bf16 loads"
 - Micro-optimizations (`fmaf()`, `__stcs()`) had no measurable effect at <2% BW utilization
 - **Cache hints hurt on B200**: inline PTX `L1::no_allocate` / `L1::evict_last` made v5 3% slower than v4 (7.302 vs 7.091 us). Hardware's default policy is better for our tiny working set.
-- **SMEM staging always loses**: cp.async to SMEM (v6), shared-memory k/q (v2), shared-memory state (v3) all add latency from the extra SMEM-to-register hop
+- **SMEM staging always loses**: cp.async to SMEM (v6), shared-memory k/q on v1 (v2), shared-memory state (v3), SMEM q/k sharing on v4 all add latency. The v4 SMEM q/k experiment (warp 0 loads q/k into SMEM for all 8 warps) was 8.5% slower: `__syncthreads()` killed IPC and L1 was already serving the "redundant" loads efficiently (35.65% hit rate)
 - **Competition GEMM patterns don't transfer**: warp specialization, TMA, cache eviction policies, mbarrier pipelines all target bandwidth/compute-bound kernels, not latency-bound ones. See `findings/research.md` "Competition pattern analysis".
 
 ### TVM FFI Builder (language="cuda")

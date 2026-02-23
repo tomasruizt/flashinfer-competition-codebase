@@ -836,7 +836,8 @@ Tested three approaches to cache control, all on the v4 architecture (8 warps, 1
 
 1. **Cache hints are counterproductive for tiny working sets.** With 4KB state per block vs 128KB L1 (RTX 3090) or 228KB (B200), there is no eviction pressure. The default cache policy is optimal.
 
-2. **SMEM staging always loses for this kernel.** Tested three times (v2 shared-memory k/q, v3 shared-memory state, v6 cp.async to SMEM). The extra SMEM-to-register hop adds ~30 cycles per access that cannot be hidden.
+2. **SMEM staging always loses for this kernel.** Tested four times (v2 shared-memory k/q on v1, v3 shared-memory state, v6 cp.async to SMEM, SMEM q/k sharing on v4). The extra SMEM-to-register hop or `__syncthreads()` barrier adds latency that cannot be hidden.
+   - **SMEM q/k sharing on v4** (2026-02-23): Warp 0 loads q/k into 1 KB SMEM, all 8 warps read from SMEM instead of each loading from global memory independently. Hypothesis: eliminates 7x redundant global loads visible in Proton traces where `load_qkv` is ~50% of warp runtime. NCU result: **4.10 us -> 4.45 us (+8.5% slower)**. Root cause: L1 cache was already efficiently serving the "redundant" loads (35.65% L1 hit rate before vs 13.37% after). The `__syncthreads()` barrier killed IPC (0.95 -> 0.63) and eligible warps (0.40 -> 0.24/cycle), stalling warps 48% longer per instruction (11.74 -> 17.35 cycles/inst). Lesson: what looks like redundant work in Proton traces may actually be L1-cached and nearly free; `__syncthreads()` has disproportionate cost on latency-bound kernels with small block counts.
 
 3. **Competition patterns target the wrong bottleneck.** GEMM competition kernels are bandwidth-bound or compute-bound. Our kernel is latency-bound (40x gap between theoretical minimum and actual runtime). Techniques that optimize throughput don't help with latency.
 
