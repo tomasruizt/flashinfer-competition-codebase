@@ -672,11 +672,11 @@ With NUM_WARPS=8: grid = (16, 8) = 128 blocks, 256 threads/block = identical par
 | Non-fused FP32 insts | 45,056 | 32,768 | 18,432 |
 | Uncoalesced excess sectors | 3.7% | **47%** | 14% |
 
-v4 matches or exceeds Triton on occupancy (25.6% vs 24.7%), IPC (1.15 vs 0.86), eligible warps (0.47 vs 0.36), and L1 hit rate (65.9% vs 34.9%). It uses the same 31 regs/thread (down from v1's 64) because `h[KVEC]` is only 4 floats instead of `h[BV][KVEC]` = 32 floats.
+**Note**: Table above shows pre-vectorization numbers. The 47% uncoalesced sectors and high L1 hit rate were fixed by vectorized bf16 loads (see "Vectorized bf16 loads" section below). After the fix: v4 regs dropped to 28, load efficiency matches FLA (28.1/32), duration improved to 4.10 us.
 
-The remaining gap (4.22 vs 3.81 us in NCU) comes from **47% uncoalesced global load sectors**. With 8 warps per block, each warp independently loads the same k and q vectors (128 bf16 values = 256 bytes each). The bf16 loads are 2 bytes per thread; with 32 threads per warp accessing consecutive bf16 elements, each 32-byte sector carries only 12.2 bytes of useful data on average (vs 28.1 for Triton). Triton's compiler likely generates wider vectorized loads or coalesces the redundant k/q loads differently.
+v4 matches or exceeds Triton on occupancy, IPC (1.15 vs 0.86), and eligible warps (0.47 vs 0.36). It uses fewer regs/thread than v1 (28 vs 64) because `h[KVEC]` is only 4 floats instead of `h[BV][KVEC]` = 32 floats.
 
-v4 also executes more total instructions (294K vs 195K for FLA, vs 78K for v1). The 8 warps each independently compute gates, load k/q, and do reductions, whereas Triton's compiler may share some of this work across warps internally.
+v4 executes more total instructions (281K vs 195K for FLA, vs 75K for v1). The 8 warps each independently compute gates, load k/q, and do reductions, whereas Triton's compiler may share some of this work across warps internally.
 
 ### NVBench results (RTX 3090, L2 flushed)
 
