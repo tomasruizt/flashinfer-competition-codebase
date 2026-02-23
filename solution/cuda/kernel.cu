@@ -172,9 +172,10 @@ __global__ void gdn_decode_kernel(
         }
     }
 
-    // --- Output matvec q@S -> out[BV] (warp reduce, thread 0 stores) ---
+    // --- Output matvec q@S -> out[BV] (warp reduce, 8 threads each store 1 bf16) ---
     {
         __nv_bfloat16 *o_ptr = output + (i_n * HV + i_hv) * V_dim + i_v * BV;
+        float out_vals[BV];
 #pragma unroll
         for (int bv = 0; bv < BV; bv++)
         {
@@ -184,11 +185,11 @@ __global__ void gdn_decode_kernel(
             {
                 partial = fmaf(q_reg[i], h[bv][i], partial);
             }
-            float out_bv = warp_reduce_sum(partial);
-            if (tid == 0)
-            {
-                o_ptr[bv] = __float2bfloat16(out_bv);
-            }
+            out_vals[bv] = warp_reduce_sum(partial);
+        }
+        if (tid < BV)
+        {
+            o_ptr[tid] = __float2bfloat16(out_vals[tid]);
         }
     }
 
