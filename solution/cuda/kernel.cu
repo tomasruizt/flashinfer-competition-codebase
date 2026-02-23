@@ -78,26 +78,43 @@ __global__ void gdn_decode_kernel(
         h[bv][3] = val.w;
     }
 
-    // --- Load q, k [KVEC per thread] bf16 -> f32, q pre-scaled ---
+    // --- Load q, k [KVEC per thread] bf16 -> f32 via vectorized 8-byte loads ---
     float q_reg[KVEC], k_reg[KVEC];
     {
-        const __nv_bfloat16* q_ptr = q + (i_n * H_qk + i_h) * K_dim + k_base;
-        const __nv_bfloat16* k_ptr = k + (i_n * H_qk + i_h) * K_dim + k_base;
-        #pragma unroll
-        for (int i = 0; i < KVEC; i++) {
-            q_reg[i] = __bfloat162float(q_ptr[i]) * scale;
-            k_reg[i] = __bfloat162float(k_ptr[i]);
-        }
+        const int qk_offset = (i_n * H_qk + i_h) * K_dim + k_base;
+        uint2 q_raw = *reinterpret_cast<const uint2*>(q + qk_offset);
+        uint2 k_raw = *reinterpret_cast<const uint2*>(k + qk_offset);
+        __nv_bfloat162 q01 = *reinterpret_cast<__nv_bfloat162*>(&q_raw.x);
+        __nv_bfloat162 q23 = *reinterpret_cast<__nv_bfloat162*>(&q_raw.y);
+        __nv_bfloat162 k01 = *reinterpret_cast<__nv_bfloat162*>(&k_raw.x);
+        __nv_bfloat162 k23 = *reinterpret_cast<__nv_bfloat162*>(&k_raw.y);
+        q_reg[0] = __bfloat162float(q01.x) * scale;
+        q_reg[1] = __bfloat162float(q01.y) * scale;
+        q_reg[2] = __bfloat162float(q23.x) * scale;
+        q_reg[3] = __bfloat162float(q23.y) * scale;
+        k_reg[0] = __bfloat162float(k01.x);
+        k_reg[1] = __bfloat162float(k01.y);
+        k_reg[2] = __bfloat162float(k23.x);
+        k_reg[3] = __bfloat162float(k23.y);
     }
 
-    // --- Load v [BV] bf16 -> f32 (broadcast: all threads load same 8 values) ---
+    // --- Load v [BV] bf16 -> f32 via vectorized 16-byte load (broadcast) ---
     float v_reg[BV];
     {
         const __nv_bfloat16* v_ptr = v + (i_n * HV + i_hv) * V_dim + i_v * BV;
-        #pragma unroll
-        for (int bv = 0; bv < BV; bv++) {
-            v_reg[bv] = __bfloat162float(v_ptr[bv]);
-        }
+        uint4 v_raw = *reinterpret_cast<const uint4*>(v_ptr);
+        __nv_bfloat162 v01 = *reinterpret_cast<__nv_bfloat162*>(&v_raw.x);
+        __nv_bfloat162 v23 = *reinterpret_cast<__nv_bfloat162*>(&v_raw.y);
+        __nv_bfloat162 v45 = *reinterpret_cast<__nv_bfloat162*>(&v_raw.z);
+        __nv_bfloat162 v67 = *reinterpret_cast<__nv_bfloat162*>(&v_raw.w);
+        v_reg[0] = __bfloat162float(v01.x);
+        v_reg[1] = __bfloat162float(v01.y);
+        v_reg[2] = __bfloat162float(v23.x);
+        v_reg[3] = __bfloat162float(v23.y);
+        v_reg[4] = __bfloat162float(v45.x);
+        v_reg[5] = __bfloat162float(v45.y);
+        v_reg[6] = __bfloat162float(v67.x);
+        v_reg[7] = __bfloat162float(v67.y);
     }
 
     // --- Load scalars and compute gates ---
@@ -272,17 +289,25 @@ void gdn_decode_v4_kernel(
         h[0] = val.x; h[1] = val.y; h[2] = val.z; h[3] = val.w;
     }
 
-    // --- Load q, k [KVEC per thread] bf16 -> f32, q pre-scaled ---
+    // --- Load q, k [KVEC per thread] bf16 -> f32 via vectorized 8-byte loads ---
     // Each warp loads independently; hits L1/L2 cache (256 bytes each)
     float q_reg[KVEC], k_reg[KVEC];
     {
-        const __nv_bfloat16* q_ptr = q + (i_n * H_qk + i_h) * K_dim + k_base;
-        const __nv_bfloat16* k_ptr = k + (i_n * H_qk + i_h) * K_dim + k_base;
-        #pragma unroll
-        for (int i = 0; i < KVEC; i++) {
-            q_reg[i] = __bfloat162float(q_ptr[i]) * scale;
-            k_reg[i] = __bfloat162float(k_ptr[i]);
-        }
+        const int qk_offset = (i_n * H_qk + i_h) * K_dim + k_base;
+        uint2 q_raw = *reinterpret_cast<const uint2*>(q + qk_offset);
+        uint2 k_raw = *reinterpret_cast<const uint2*>(k + qk_offset);
+        __nv_bfloat162 q01 = *reinterpret_cast<__nv_bfloat162*>(&q_raw.x);
+        __nv_bfloat162 q23 = *reinterpret_cast<__nv_bfloat162*>(&q_raw.y);
+        __nv_bfloat162 k01 = *reinterpret_cast<__nv_bfloat162*>(&k_raw.x);
+        __nv_bfloat162 k23 = *reinterpret_cast<__nv_bfloat162*>(&k_raw.y);
+        q_reg[0] = __bfloat162float(q01.x) * scale;
+        q_reg[1] = __bfloat162float(q01.y) * scale;
+        q_reg[2] = __bfloat162float(q23.x) * scale;
+        q_reg[3] = __bfloat162float(q23.y) * scale;
+        k_reg[0] = __bfloat162float(k01.x);
+        k_reg[1] = __bfloat162float(k01.y);
+        k_reg[2] = __bfloat162float(k23.x);
+        k_reg[3] = __bfloat162float(k23.y);
     }
 
     // --- Load v (1 scalar per warp, broadcast) ---
