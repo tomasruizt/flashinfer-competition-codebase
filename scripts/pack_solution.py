@@ -16,7 +16,13 @@ except ImportError:
 from flashinfer_bench import BuildSpec
 from flashinfer_bench.agents import pack_solution_from_files
 
-from .shared import ALGO_ENTRY_POINTS, ALGO_LANGUAGES, PROJECT_ROOT, parse_args
+from .shared import (
+    ALGO_ENTRY_POINTS,
+    ALGO_LANGUAGES,
+    ALGO_NO_DPS,
+    PROJECT_ROOT,
+    parse_args,
+)
 
 
 def load_config() -> dict:
@@ -29,7 +35,13 @@ def load_config() -> dict:
         return tomllib.load(f)
 
 
-def pack_solution(output_path: Path = None, entry_point: str = None, name: str = None, language: str = None) -> Path:
+def pack_solution(
+    output_path: Path = None,
+    entry_point: str = None,
+    name: str = None,
+    language: str = None,
+    dps: bool = True,
+) -> Path:
     """Pack solution files into a Solution JSON."""
     config = load_config()
 
@@ -60,6 +72,7 @@ def pack_solution(output_path: Path = None, entry_point: str = None, name: str =
         language=language,
         target_hardware=["cuda"],
         entry_point=entry_point,
+        destination_passing_style=dps,
     )
 
     # Pack the solution
@@ -92,7 +105,14 @@ def main():
 
     try:
         language = ALGO_LANGUAGES.get(args.algo)
-        pack_solution(args.output, entry_point=entry_point, name=args.algo, language=language)
+        dps = args.algo not in ALGO_NO_DPS
+        pack_solution(
+            args.output,
+            entry_point=entry_point,
+            name=args.algo,
+            language=language,
+            dps=dps,
+        )
     except Exception as e:
         print(f"Error: {e}", file=sys.stderr)
         sys.exit(1)

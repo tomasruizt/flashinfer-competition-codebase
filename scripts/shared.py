@@ -20,6 +20,8 @@ ALGO_LANGUAGES = {
     "cuda-v4": "cuda",
 }
 
+ALGO_NO_DPS = {"pt-reference", "pt-compiled"}
+
 
 def load_algo_functions() -> dict:
     """Lazily import and return a mapping from algo name to callable kernel function.

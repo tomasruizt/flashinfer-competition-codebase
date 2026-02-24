@@ -18,10 +18,10 @@ triton.set_allocator(
 
 
 @torch.no_grad()
-def kernel_pt_reference(q, k, v, state, A_log, a, dt_bias, b, scale, output, new_state):
+def kernel_pt_reference(q, k, v, state, A_log, a, dt_bias, b, scale, **_kwargs):
     """
     Gated Delta Net decode reference implementation (k-last layout).
-    Writes directly into DPS buffers (output, new_state).
+    Returns (output, new_state) to match the competition reference exactly (non-DPS).
 
     Single-token recurrent step: reads from a fixed-size state matrix using q,
     then updates the state by erasing old information at key k and writing new
@@ -40,8 +40,10 @@ def kernel_pt_reference(q, k, v, state, A_log, a, dt_bias, b, scale, output, new
         b:         [B, 1, num_v_heads=8]             bf16 — update gate input. beta = sigmoid(b) controls
                    how much of the new value to write vs retaining old value at key k.
         scale:     scalar f32 — output scale factor, default 1/sqrt(K) = 1/sqrt(128).
-        output:    [B, 1, num_v_heads=8, V=128]     bf16 — DPS output buffer.
-        new_state: [B, num_v_heads=8, V=128, K=128]  f32 — DPS state output buffer.
+
+    Returns:
+        output:    [B, 1, num_v_heads=8, V=128]     bf16 — attention output.
+        new_state: [B, num_v_heads=8, V=128, K=128]  f32 — updated recurrent state.
 
     Recurrence (per head, working in [K,V] layout):
         g     = exp(-exp(A_log) * softplus(a + dt_bias))   # global decay ∈ (0,1)
@@ -84,6 +86,9 @@ def kernel_pt_reference(q, k, v, state, A_log, a, dt_bias, b, scale, output, new
     q_exp = q_f32.repeat_interleave(num_v_heads // num_q_heads, dim=1)
     k_exp = k_f32.repeat_interleave(num_v_heads // num_k_heads, dim=1)
 
+    new_state = torch.zeros_like(state_f32)
+    output = torch.zeros(B, num_heads, V, dtype=torch.float32, device=device)
+
     # fmt: off
     for b_idx in range(B):
         for h_idx in range(num_heads):
@@ -103,9 +108,12 @@ def kernel_pt_reference(q, k, v, state, A_log, a, dt_bias, b, scale, output, new
             state_update = k_h.unsqueeze(1) @ new_v.unsqueeze(0)  # [K,1] @ [1,V] -> [K, V] — outer product: write new
             h_state = old_state - state_remove + state_update     # [K, V] — updated state
 
-            output[b_idx, 0, h_idx] = (scale * (q_h @ h_state)).to(torch.bfloat16)  # [V] into [B,1,H,V]
+            output[b_idx, h_idx] = scale * (q_h @ h_state)
             new_state[b_idx, h_idx] = h_state.transpose(-1, -2)  # [K,V] -> [V,K] back to storage layout
     # fmt: on
+
+    output = output.unsqueeze(1).to(torch.bfloat16)
+    return output, new_state
 
 
 kernel_pt_compiled = torch.compile(kernel_pt_reference, fullgraph=True)

@@ -9,7 +9,13 @@ import os
 from flashinfer_bench import Benchmark, BenchmarkConfig, Solution, TraceSet
 
 from .pack_solution import pack_solution
-from .shared import ALGO_ENTRY_POINTS, ALGO_LANGUAGES, PROJECT_ROOT, parse_args
+from .shared import (
+    ALGO_ENTRY_POINTS,
+    ALGO_LANGUAGES,
+    ALGO_NO_DPS,
+    PROJECT_ROOT,
+    parse_args,
+)
 
 
 def get_trace_set_path() -> str:
@@ -23,11 +29,15 @@ def get_trace_set_path() -> str:
     return path
 
 
-def run_benchmark(solution: Solution, config: BenchmarkConfig = None, num_workloads: int = 0) -> dict:
+def run_benchmark(
+    solution: Solution, config: BenchmarkConfig = None, num_workloads: int = 0
+) -> dict:
     """Run benchmark locally and return results."""
     if config is None:
         config = BenchmarkConfig(
-            warmup_runs=3, iterations=100, num_trials=5,
+            warmup_runs=3,
+            iterations=100,
+            num_trials=5,
             log_dir=str(PROJECT_ROOT / "logs" / "fib-bench"),
         )
 
@@ -112,7 +122,10 @@ def main():
     # Use algo as solution name so "solution" in each trace line is the algo (easy to filter in analysis)
     print("Packing solution from source files...")
     language = ALGO_LANGUAGES.get(args.algo)
-    solution_path = pack_solution(entry_point=entry_point, name=args.algo, language=language)
+    dps = args.algo not in ALGO_NO_DPS
+    solution_path = pack_solution(
+        entry_point=entry_point, name=args.algo, language=language, dps=dps
+    )
 
     print("\nLoading solution...")
     solution = Solution.model_validate_json(solution_path.read_text())

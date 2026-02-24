@@ -18,20 +18,20 @@ python -m scripts.bench_nvbench --algo=all
 
 ```
 Run:  [1/7] gdn_decode [Device=0 Algo=pt-reference]
-Pass: Cold: 0.276125ms GPU, 1.940044ms CPU, 0.82s total GPU, 5.80s total wall, 2960x 
+Pass: Cold: 0.267475ms GPU, 1.777158ms CPU, 0.83s total GPU, 5.61s total wall, 3120x 
 Run:  [2/7] gdn_decode [Device=0 Algo=pt-compiled]
-Pass: Cold: 0.138852ms GPU, 1.058037ms CPU, 0.50s total GPU, 3.90s total wall, 3616x 
+Pass: Cold: 0.138638ms GPU, 1.111080ms CPU, 0.50s total GPU, 4.09s total wall, 3616x 
 Run:  [3/7] gdn_decode [Device=0 Algo=fi-baseline]
-Pass: Cold: 0.005535ms GPU, 0.072098ms CPU, 0.50s total GPU, 10.93s total wall, 90336x 
+Pass: Cold: 0.005416ms GPU, 0.068482ms CPU, 0.50s total GPU, 10.73s total wall, 92320x 
 Run:  [4/7] gdn_decode [Device=0 Algo=fla-recurrent]
-Warn: GPU throttled below threshold (1287.11 MHz / 1785.00 MHz) (72% < 75%) on sample 36175. Discarding previous trial and pausing for 0.050s.
-Pass: Cold: 0.005284ms GPU, 0.078995ms CPU, 0.50s total GPU, 12.26s total wall, 94624x 
+Warn: GPU throttled below threshold (887.66 MHz / 1785.00 MHz) (50% < 75%) on sample 5868. Discarding previous trial and pausing for 0.050s.
+Pass: Cold: 0.005106ms GPU, 0.076835ms CPU, 0.50s total GPU, 12.44s total wall, 97936x 
 Run:  [5/7] gdn_decode [Device=0 Algo=fla-tma]
-Pass: Cold: 0.009037ms GPU, 0.074520ms CPU, 0.50s total GPU, 6.17s total wall, 55328x 
+Pass: Cold: 0.008960ms GPU, 0.073360ms CPU, 0.50s total GPU, 6.12s total wall, 55808x 
 Run:  [6/7] gdn_decode [Device=0 Algo=cuda-v1]
-Pass: Cold: 0.005831ms GPU, 0.048906ms CPU, 0.50s total GPU, 8.17s total wall, 85744x 
+Pass: Cold: 0.005760ms GPU, 0.048340ms CPU, 0.50s total GPU, 8.15s total wall, 86816x 
 Run:  [7/7] gdn_decode [Device=0 Algo=cuda-v4]
-Pass: Cold: 0.005318ms GPU, 0.048185ms CPU, 0.50s total GPU, 9.14s total wall, 94032x 
+Pass: Cold: 0.005234ms GPU, 0.049847ms CPU, 0.50s total GPU, 9.52s total wall, 95536x 
 ```
 
 # Benchmark Results
@@ -42,10 +42,10 @@ Pass: Cold: 0.005318ms GPU, 0.048185ms CPU, 0.50s total GPU, 9.14s total wall, 9
 
 |     Algo      |    Read     |    Write    | Samples | CPU Time  | Noise |  GPU Time  | Noise | GlobalMem BW | BWUtil |
 |---------------|-------------|-------------|---------|-----------|-------|------------|-------|--------------|--------|
-|  pt-reference | 516.000 KiB | 514.000 KiB |   2960x |  1.940 ms | 1.91% | 276.125 us | 1.85% |   3.820 GB/s |  0.41% |
-|   pt-compiled | 516.000 KiB | 514.000 KiB |   3616x |  1.058 ms | 4.36% | 138.852 us | 2.14% |   7.596 GB/s |  0.81% |
-|   fi-baseline | 516.000 KiB | 514.000 KiB |  90336x | 72.098 us | 7.47% |   5.535 us | 8.90% | 190.544 GB/s | 20.36% |
-| fla-recurrent | 516.000 KiB | 514.000 KiB |  94624x | 78.995 us | 3.46% |   5.284 us | 8.63% | 199.603 GB/s | 21.32% |
-|       fla-tma | 516.000 KiB | 514.000 KiB |  55328x | 74.520 us | 3.38% |   9.037 us | 4.72% | 116.709 GB/s | 12.47% |
-|       cuda-v1 | 516.000 KiB | 514.000 KiB |  85744x | 48.906 us | 3.62% |   5.831 us | 8.02% | 180.869 GB/s | 19.32% |
-|       cuda-v4 | 516.000 KiB | 514.000 KiB |  94032x | 48.185 us | 4.00% |   5.318 us | 7.59% | 198.344 GB/s | 21.19% |
+|  pt-reference | 516.000 KiB | 514.000 KiB |   3120x |  1.777 ms | 2.01% | 267.475 us | 2.22% |   3.943 GB/s |  0.42% |
+|   pt-compiled | 516.000 KiB | 514.000 KiB |   3616x |  1.111 ms | 4.71% | 138.638 us | 2.05% |   7.608 GB/s |  0.81% |
+|   fi-baseline | 516.000 KiB | 514.000 KiB |  92320x | 68.482 us | 5.96% |   5.416 us | 8.31% | 194.740 GB/s | 20.80% |
+| fla-recurrent | 516.000 KiB | 514.000 KiB |  97936x | 76.835 us | 3.64% |   5.106 us | 6.78% | 206.569 GB/s | 22.07% |
+|       fla-tma | 516.000 KiB | 514.000 KiB |  55808x | 73.360 us | 3.80% |   8.960 us | 4.83% | 117.708 GB/s | 12.57% |
+|       cuda-v1 | 516.000 KiB | 514.000 KiB |  86816x | 48.340 us | 4.17% |   5.760 us | 8.40% | 183.109 GB/s | 19.56% |
+|       cuda-v4 | 516.000 KiB | 514.000 KiB |  95536x | 49.847 us | 7.61% |   5.234 us | 6.24% | 201.499 GB/s | 21.53% |

@@ -41,13 +41,13 @@ GPU: RTX 3090 (local), B200 (Modal). All algos pass correctness on all 20 worklo
 
 | Algo          | RTX 3090 | B200     | Beats FI |
 |---------------|----------|----------|----------|
-| fla-recurrent | 5.28 us  | 7.08 us  | ✅ |
-| cuda-v4       | 5.32 us  | 7.34 us  | ✅ |
-| cuda-v1       | 5.83 us  | 7.37 us  | ✅ |
-| fi-baseline   | 5.54 us  | 8.09 us  | -- |
-| fla-tma       | 9.04 us  | 14.70 us | ❌ |
-| pt-compiled   | 138.9 us | 283.3 us | ❌ |
-| pt-reference  | 276.1 us | 546.8 us | ❌ |
+| fla-recurrent | 5.11 us  | 6.60 us  | ✅ |
+| cuda-v4       | 5.23 us  | 6.62 us  | ✅ |
+| cuda-v1       | 5.76 us  | 7.82 us  | ✅ |
+| fi-baseline   | 5.42 us  | 8.27 us  | -- |
+| fla-tma       | 8.96 us  | 12.58 us | ❌ |
+| pt-compiled   | 138.6 us | 255.4 us | ❌ |
+| pt-reference  | 267.5 us | 496.6 us | ❌ |
 
 Sorted by B200 time. RTX 3090 ranking is the same except fi-baseline and cuda-v1 swap.
 
@@ -60,8 +60,8 @@ Sorted by B200 time. RTX 3090 ranking is the same except fi-baseline and cuda-v1
 | fi-baseline   | 4.72 us  | ~245x   |
 | cuda-v1       | 4.82 us  | ~242x   |
 | fla-tma       | 7.55 us  | ~154x   |
-| pt-compiled   | 680 us   | ~1.75x  |
-| pt-reference  | 1370 us  | ~0.89x  |
+| pt-compiled   | 645 us   | ~1.88x  |
+| pt-reference  | 1300 us  | ~0.94x  |
 
 Agrees with NVBench ranking. Slightly lower absolute times (timing fix removes sync overhead).
 
