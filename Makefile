@@ -48,6 +48,10 @@ modal-fi:
 modal-cuda:
 	ALGO=cuda-v1 modal run -m scripts.run_modal
 
+modal-cuda-v4:
+	ALGO=cuda-v4 modal run -m scripts.run_modal
+
+
 COMMENT ?=
 
 bench-fla-all:
@@ -192,3 +196,31 @@ nvbench-modal-all:
 
 proton-example:
 	cd timeline && TRITON_ALWAYS_COMPILE=1 TRITON_KERNEL_DUMP=1 TRITON_DUMP_DIR=ttgir_dump python example_dsl.py
+
+
+# Generate all results
+bench-gen-all-results:
+	mkdir -p final-nums/fi-bench/
+	$(MAKE) bench-fla > final-nums/fi-bench/fla-recurrent.txt
+	$(MAKE) bench-tma > final-nums/fi-bench/fla-tma.txt
+	$(MAKE) bench-pt > final-nums/fi-bench/pt-reference.txt
+	$(MAKE) bench-fi > final-nums/fi-bench/fi-baseline.txt
+	$(MAKE) bench-cuda > final-nums/fi-bench/cuda-v1.txt
+	$(MAKE) bench-cuda-v4 > final-nums/fi-bench/cuda-v4.txt
+
+modal-gen-all-results:
+	mkdir -p final-nums/fi-bench-modal/
+	$(MAKE) modal-fla > final-nums/fi-bench-modal/fla-recurrent.txt
+	$(MAKE) modal-tma > final-nums/fi-bench-modal/fla-tma.txt
+	$(MAKE) modal-pt > final-nums/fi-bench-modal/pt-reference.txt
+	$(MAKE) modal-fi > final-nums/fi-bench-modal/fi-baseline.txt
+	$(MAKE) modal-cuda > final-nums/fi-bench-modal/cuda-v1.txt
+	$(MAKE) modal-cuda-v4 > final-nums/fi-bench-modal/cuda-v4.txt
+
+nvbench-gen-all-results:
+	mkdir -p final-nums/nvbench/
+	$(MAKE) ALGO=all nvbench > final-nums/nvbench/all.txt
+
+nvbench-modal-gen-all-results:
+	mkdir -p final-nums/nvbench-modal/
+	$(MAKE) ALGO=all nvbench-modal > final-nums/nvbench-modal/all.txt

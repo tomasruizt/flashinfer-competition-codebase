@@ -2,6 +2,7 @@
 
 from pathlib import Path
 
+
 PROJECT_ROOT = Path(__file__).parent.parent
 
 ALGO_ENTRY_POINTS = {
@@ -33,11 +34,13 @@ def load_algo_functions() -> dict:
         kernel_fi_baseline,
         kernel_fla_recurrent,
         kernel_fla_tma,
+        kernel_pt_reference,
     )
 
     return {
-        "fla-recurrent": kernel_fla_recurrent,
+        "pt-reference": kernel_pt_reference,
         "fi-baseline": kernel_fi_baseline,
+        "fla-recurrent": kernel_fla_recurrent,
         "fla-tma": kernel_fla_tma,
         "cuda-v1": kernel_cuda,
         "cuda-v4": kernel_cuda_v4,
@@ -56,13 +59,15 @@ def parse_args():
         help="Algorithm to benchmark (default: fla-recurrent)",
     )
     parser.add_argument(
-        "-o", "--output",
+        "-o",
+        "--output",
         type=Path,
         default=None,
-        help="Output path for solution.json (default: ./solution.json)"
+        help="Output path for solution.json (default: ./solution.json)",
     )
     parser.add_argument(
-        "-n", "--num-workloads",
+        "-n",
+        "--num-workloads",
         type=int,
         default=0,
         help="Number of workloads to run (default: 0 = all)",
