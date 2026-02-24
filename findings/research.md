@@ -1,5 +1,7 @@
 # Track C: Gated Delta Net -- Research Notes
 
+> **Final benchmark numbers**: see [`final-nums/overview.md`](../final-nums/overview.md) for consolidated CUPTI, NVBench, and fi-bench results across all algos on B200 and RTX 3090.
+
 ## Competition Overview
 
 - **Competition**: [FlashInfer AI Kernel Generation Contest @ MLSys 2026](https://mlsys26.flashinfer.ai/)
