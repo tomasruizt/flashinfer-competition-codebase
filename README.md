@@ -55,7 +55,7 @@ Speedup is relative to the PyTorch eager baseline; the last column is relative t
 | pt-compiled          | 835.15      | ~2.3x   | 0.004x        |
 | pt-reference         | 1946.32     | ~1.0x   | 0.002x        |
 
-Raw log: [fi-timing-modal/all.txt](fi-timing-modal/all.txt)
+Raw log: [fi-timing-modal/all.txt](final-nums/fi-timing-modal/all.txt)
 
 ## NVBench
 
@@ -72,7 +72,7 @@ It uses CUDA events for timing, with L2 cache flushing, GPU thermal throttling d
 | pt-compiled          | 255.4       | ~1.9x   | 0.03x         |
 | pt-reference         | 496.6       | ~1.0x   | 0.02x         |
 
-Raw log: [nvbench-modal/all.txt](nvbench-modal/all.txt)
+Raw log: [nvbench-modal/all.txt](final-nums/nvbench-modal/all.txt)
 
 While absolute times differ, rankings match CUPTI.
 

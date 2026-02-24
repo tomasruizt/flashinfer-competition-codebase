@@ -1,5 +1,15 @@
 # Worklog Week 1
 
+## Worklog 2026-02-24
+
+Documentation and benchmarking wrap-up.
+
+- **CUPTI-based benchmarking** (`bench_fi_timing.py`): Added `bench_gpu_time(enable_cupti=True)` timing, which measures pure GPU kernel time. Speedups shoot up to ~760x since CUPTI excludes CPU launch overhead.
+- **Fixed pt-reference DPS**: Disabled DPS style in pt-reference to match the competition reference implementation.
+- **Final results**: Generated all runtimes for final comparison and documented results.
+- **Overview write-up**: Finished the project overview markdown and updated README.
+- worked time: 5h30
+
 ## Worklog 2026-02-23
 
 CUDA micro-optimizations.
