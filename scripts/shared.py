@@ -22,6 +22,22 @@ ALGO_LANGUAGES = {
 
 ALGO_NO_DPS = {"pt-reference", "pt-compiled"}
 
+CUDA_ALGOS = list(ALGO_LANGUAGES.keys())
+NON_CUDA_ALGOS = [a for a in ALGO_ENTRY_POINTS if a not in ALGO_LANGUAGES]
+ALL_ALGOS = NON_CUDA_ALGOS + CUDA_ALGOS
+
+
+def resolve_algo_names(algo_str: str) -> list[str]:
+    """Resolve algo string to list of algo names.
+
+    Accepts "all", "cuda-all", or a comma-separated list of algo names.
+    """
+    if algo_str == "all":
+        return ALL_ALGOS
+    if algo_str == "cuda-all":
+        return CUDA_ALGOS
+    return [a.strip() for a in algo_str.split(",")]
+
 
 def load_algo_functions() -> dict:
     """Lazily import and return a mapping from algo name to callable kernel function.

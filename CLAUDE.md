@@ -3,6 +3,9 @@
 ## Writing Style
 - **Never use em dashes** (the "—" character). Use parentheses, commas, colons, semicolons, or split into separate sentences instead.
 
+## Code Style
+- **Don't duplicate logic across local and Modal scripts.** Extract shared logic into a function in the local script, then have the Modal script import and call it (see `bench_nvbench.py` / `bench_nvbench_modal.py` pattern).
+
 ## Team
 - Team name: **lmu-css**
 - Track: **gated_delta_net** (Gated Delta Net)

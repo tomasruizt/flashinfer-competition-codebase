@@ -14,7 +14,7 @@ import cuda.bench as bench
 import torch
 
 from .profile_proton import load_workload_tensors
-from .shared import load_algo_functions
+from .shared import load_algo_functions, resolve_algo_names
 
 
 def as_torch_stream(cs: bench.CudaStream) -> torch.cuda.ExternalStream:
@@ -62,10 +62,7 @@ def main():
     )
     args, remaining = parser.parse_known_args()
 
-    if args.algo == "all":
-        algo_names = list(ALGOS)
-    else:
-        algo_names = [a.strip() for a in args.algo.split(",")]
+    algo_names = resolve_algo_names(args.algo)
 
     b = bench.register(gdn_decode)
     b.add_string_axis("Algo", algo_names)

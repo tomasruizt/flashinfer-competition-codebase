@@ -3,7 +3,7 @@
 #   NUM_WORKLOADS=3 make modal-fla
 # TRITON_PRINT_AUTOTUNING is always on (logs go to logs/fib-bench/)
 
-.PHONY: bench-fla bench-pt bench-pt-compiled bench-tma bench-fi bench-cuda bench-cuda-v4 modal-fla modal-pt modal-pt-compiled modal-tma modal-fi modal-cuda modal-get-logs modal-clear-logs bench-fla-all bench-tma-all clean-empty-logs proton-fla proton-example clean-triton-cache document-speedups ncu-fla ncu-fi ncu-cuda ncu-cuda-v4 ncu-export-fla ncu-export-fi ncu-export-cuda ncu-export-cuda-v4 nvbench nvbench-fla nvbench-fi nvbench-cuda nvbench-cuda-v4 nvbench-all nvbench-modal-fla nvbench-modal-fi nvbench-modal-cuda-all nvbench-modal-all
+.PHONY: bench-fla bench-pt bench-pt-compiled bench-tma bench-fi bench-cuda bench-cuda-v4 modal-fla modal-pt modal-pt-compiled modal-tma modal-fi modal-cuda modal-get-logs modal-clear-logs bench-fla-all bench-tma-all clean-empty-logs proton-fla proton-example clean-triton-cache document-speedups ncu-fla ncu-fi ncu-cuda ncu-cuda-v4 ncu-export-fla ncu-export-fi ncu-export-cuda ncu-export-cuda-v4 nvbench nvbench-fla nvbench-fi nvbench-cuda nvbench-cuda-v4 nvbench-all nvbench-modal-fla nvbench-modal-fi nvbench-modal-cuda-all nvbench-modal-all fi-timing fi-timing-modal
 
 export TRITON_PRINT_AUTOTUNING=1
 N ?= 0
@@ -200,6 +200,12 @@ nvbench-modal-cuda-all:
 nvbench-modal-all:
 	ALGO=all modal run -m scripts.bench_nvbench_modal
 
+fi-timing:
+	python -m scripts.bench_fi_timing --algo=$(ALGO)
+
+fi-timing-modal:
+	ALGO=$(ALGO) modal run -m scripts.bench_fi_timing_modal
+
 proton-example:
 	cd timeline && TRITON_ALWAYS_COMPILE=1 TRITON_KERNEL_DUMP=1 TRITON_DUMP_DIR=ttgir_dump python example_dsl.py
 
@@ -232,3 +238,11 @@ nvbench-gen-all-results:
 nvbench-modal-gen-all-results:
 	mkdir -p final-nums/nvbench-modal/
 	$(MAKE) ALGO=all nvbench-modal > final-nums/nvbench-modal/all.txt
+
+fi-timing-gen-all-results:
+	mkdir -p final-nums/fi-timing/
+	$(MAKE) ALGO=all fi-timing > final-nums/fi-timing/all.txt
+
+fi-timing-modal-gen-all-results:
+	mkdir -p final-nums/fi-timing-modal/
+	$(MAKE) ALGO=all fi-timing-modal > final-nums/fi-timing-modal/all.txt

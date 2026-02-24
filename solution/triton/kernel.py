@@ -196,7 +196,7 @@ def kernel_fla_recurrent(
 # ---------------------------------------------------------------------------
 # Triton kernel: fused recurrent GDN forward
 # Inlined from fla.ops.gated_delta_rule.fused_recurrent (flash-linear-attention)
-# Copyright (c) 2023-2025, Songlin Yang, Yu Zhang
+# and then heavily simplified and optimized for the FlashInfer competition.
 # ---------------------------------------------------------------------------
 
 

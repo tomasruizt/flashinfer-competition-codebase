@@ -17,24 +17,13 @@ import sys
 import modal
 
 from .modal_config import TRACE_SET_PATH, image as base_image, trace_volume
-from .shared import ALGO_ENTRY_POINTS, ALGO_LANGUAGES
+from .shared import resolve_algo_names
 
 app = modal.App("nvbench-gdn")
 
-image = (
-    base_image
-    .pip_install("cuda-bench")
-    .env({"FIB_DATASET_PATH": TRACE_SET_PATH})
-    .add_local_dir("solution", remote_path="/root/solution")
-    .add_local_dir("scripts", remote_path="/root/scripts")
-)
+image = base_image.pip_install("cuda-bench")
 
 algo = os.getenv("ALGO", "all")
-
-# Derive algo groups from shared.py
-CUDA_ALGOS = list(ALGO_LANGUAGES.keys())
-TRITON_ALGOS = [a for a in ALGO_ENTRY_POINTS if a not in ALGO_LANGUAGES]
-ALL_ALGOS = TRITON_ALGOS + CUDA_ALGOS
 
 
 @app.function(
@@ -61,15 +50,6 @@ def run_nvbench(algo_names: list[str]):
     b = bench.register(gdn_decode)
     b.add_string_axis("Algo", algo_names)
     bench.run_all_benchmarks(["nvbench_modal"])
-
-
-def resolve_algo_names(algo_str: str) -> list[str]:
-    """Resolve algo string to list of algo names."""
-    if algo_str == "all":
-        return ALL_ALGOS
-    if algo_str == "cuda-all":
-        return CUDA_ALGOS
-    return [a.strip() for a in algo_str.split(",")]
 
 
 @app.local_entrypoint()
