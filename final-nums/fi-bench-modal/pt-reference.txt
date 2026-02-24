@@ -1,0 +1,58 @@
+ALGO=pt-reference modal run -m scripts.run_modal
+✓ Initialized. View run at 
+https://modal.com/apps/lmu-css/main/ap-skvPzd6vA75Y2PA0W0A20e
+✓ Created objects.
+├── 🔨 Created mount PythonPackage:scripts
+└── 🔨 Created function run_benchmark.
+Algorithm: pt-reference (entry_point: kernel.py::kernel_pt_reference)
+Packing solution from source files...
+Solution packed: /home/tomasruiz/code/flashinfer-competition-codebase/solution.json
+  Name: pt-reference
+  Definition: gdn_decode_qk4_v8_d128_k_last
+  Author: lmu-css
+  Language: triton
+
+Loading solution...
+Loaded: pt-reference (gdn_decode_qk4_v8_d128_k_last)
+
+Running benchmark on Modal B200 (num_workloads=all)...
+
+==========
+== CUDA ==
+==========
+
+CUDA Version 12.8.1
+
+Container image Copyright (c) 2016-2023, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+
+This container image and its contents are governed by the NVIDIA Deep Learning Container License.
+By pulling and using the container, you accept the terms and conditions of this license:
+https://developer.nvidia.com/ngc/nvidia-deep-learning-container-license
+
+A copy of this license is made available in this container at /NGC-DL-CONTAINER-LICENSE for your convenience.
+
+
+gdn_decode_qk4_v8_d128_k_last:
+  Workload 6700a748...: PASSED | 1378.059 µs | 0.93x speedup | abs_err=0.00e+00, rel_err=0.00e+00
+  Workload d66ae544...: PASSED | 1382.942 µs | 0.88x speedup | abs_err=0.00e+00, rel_err=0.00e+00
+  Workload bf115ff9...: PASSED | 1378.517 µs | 0.88x speedup | abs_err=0.00e+00, rel_err=0.00e+00
+  Workload 30bb1856...: PASSED | 1381.061 µs | 0.87x speedup | abs_err=0.00e+00, rel_err=0.00e+00
+  Workload 48a5be68...: PASSED | 1382.468 µs | 0.93x speedup | abs_err=0.00e+00, rel_err=0.00e+00
+  Workload 6f09252c...: PASSED | 1383.517 µs | 0.87x speedup | abs_err=0.00e+00, rel_err=0.00e+00
+  Workload 1e4e5a87...: PASSED | 1382.880 µs | 0.86x speedup | abs_err=0.00e+00, rel_err=0.00e+00
+  Workload 8e3e1aa6...: PASSED | 1379.792 µs | 0.93x speedup | abs_err=0.00e+00, rel_err=0.00e+00
+  Workload 741eb2c4...: PASSED | 1378.250 µs | 0.87x speedup | abs_err=0.00e+00, rel_err=0.00e+00
+  Workload 562d6431...: PASSED | 1393.983 µs | 0.89x speedup | abs_err=0.00e+00, rel_err=0.00e+00
+  Workload cf76ded3...: PASSED | 1376.431 µs | 0.89x speedup | abs_err=0.00e+00, rel_err=0.00e+00
+  Workload 55b3b0a4...: PASSED | 1393.594 µs | 0.87x speedup | abs_err=0.00e+00, rel_err=0.00e+00
+  Workload 8add0e58...: PASSED | 1378.958 µs | 0.88x speedup | abs_err=0.00e+00, rel_err=0.00e+00
+  Workload 5727c2b1...: PASSED | 1373.957 µs | 0.87x speedup | abs_err=0.00e+00, rel_err=0.00e+00
+  Workload cc8d77b2...: PASSED | 1383.686 µs | 0.92x speedup | abs_err=0.00e+00, rel_err=0.00e+00
+  Workload 3bd97bb8...: PASSED | 1381.978 µs | 0.88x speedup | abs_err=0.00e+00, rel_err=0.00e+00
+  Workload f1b6043f...: PASSED | 1373.978 µs | 0.87x speedup | abs_err=0.00e+00, rel_err=0.00e+00
+  Workload 8038c14e...: PASSED | 1379.492 µs | 0.87x speedup | abs_err=0.00e+00, rel_err=0.00e+00
+  Workload 03436065...: PASSED | 1390.162 µs | 0.86x speedup | abs_err=0.00e+00, rel_err=0.00e+00
+  Workload c40fb468...: PASSED | 1431.452 µs | 0.84x speedup | abs_err=0.00e+00, rel_err=0.00e+00
+Stopping app - local entrypoint completed.
+✓ App completed. View run at 
+https://modal.com/apps/lmu-css/main/ap-skvPzd6vA75Y2PA0W0A20e

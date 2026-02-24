@@ -1,0 +1,35 @@
+python -m scripts.run_local --algo=pt-reference -n 0
+Algorithm: pt-reference (entry_point: kernel.py::kernel_pt_reference)
+Packing solution from source files...
+Solution packed: /home/tomasruiz/code/flashinfer-competition-codebase/solution.json
+  Name: pt-reference
+  Definition: gdn_decode_qk4_v8_d128_k_last
+  Author: lmu-css
+  Language: triton
+
+Loading solution...
+Loaded: pt-reference (gdn_decode_qk4_v8_d128_k_last)
+
+Running benchmark...
+
+gdn_decode_qk4_v8_d128_k_last:
+  Workload 6700a748...: PASSED | 1391.071 µs | 0.85x speedup | abs_err=0.00e+00, rel_err=0.00e+00
+  Workload d66ae544...: PASSED | 1317.715 µs | 1.05x speedup | abs_err=0.00e+00, rel_err=0.00e+00
+  Workload bf115ff9...: PASSED | 1338.580 µs | 0.91x speedup | abs_err=0.00e+00, rel_err=0.00e+00
+  Workload 30bb1856...: PASSED | 1381.290 µs | 0.84x speedup | abs_err=0.00e+00, rel_err=0.00e+00
+  Workload 48a5be68...: PASSED | 1332.680 µs | 1.00x speedup | abs_err=0.00e+00, rel_err=0.00e+00
+  Workload 6f09252c...: PASSED | 1328.355 µs | 0.87x speedup | abs_err=0.00e+00, rel_err=0.00e+00
+  Workload 1e4e5a87...: PASSED | 1308.540 µs | 0.92x speedup | abs_err=0.00e+00, rel_err=0.00e+00
+  Workload 8e3e1aa6...: PASSED | 1338.687 µs | 0.89x speedup | abs_err=0.00e+00, rel_err=0.00e+00
+  Workload 741eb2c4...: PASSED | 1325.040 µs | 0.89x speedup | abs_err=0.00e+00, rel_err=0.00e+00
+  Workload 562d6431...: PASSED | 1329.764 µs | 0.91x speedup | abs_err=0.00e+00, rel_err=0.00e+00
+  Workload cf76ded3...: PASSED | 1312.858 µs | 0.90x speedup | abs_err=0.00e+00, rel_err=0.00e+00
+  Workload 55b3b0a4...: PASSED | 1324.511 µs | 0.89x speedup | abs_err=0.00e+00, rel_err=0.00e+00
+  Workload 8add0e58...: PASSED | 1315.717 µs | 0.91x speedup | abs_err=0.00e+00, rel_err=0.00e+00
+  Workload 5727c2b1...: PASSED | 1454.059 µs | 0.86x speedup | abs_err=0.00e+00, rel_err=0.00e+00
+  Workload cc8d77b2...: PASSED | 1477.186 µs | 0.84x speedup | abs_err=0.00e+00, rel_err=0.00e+00
+  Workload 3bd97bb8...: PASSED | 1391.457 µs | 0.88x speedup | abs_err=0.00e+00, rel_err=0.00e+00
+  Workload f1b6043f...: PASSED | 1375.055 µs | 0.89x speedup | abs_err=0.00e+00, rel_err=0.00e+00
+  Workload 8038c14e...: PASSED | 1468.160 µs | 0.83x speedup | abs_err=0.00e+00, rel_err=0.00e+00
+  Workload 03436065...: PASSED | 1470.464 µs | 0.85x speedup | abs_err=0.00e+00, rel_err=0.00e+00
+  Workload c40fb468...: PASSED | 1520.585 µs | 0.82x speedup | abs_err=0.00e+00, rel_err=0.00e+00

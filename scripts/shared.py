@@ -9,6 +9,7 @@ ALGO_ENTRY_POINTS = {
     "fla-recurrent": "kernel.py::kernel_fla_recurrent",
     "fla-tma": "kernel.py::kernel_fla_tma",
     "pt-reference": "kernel.py::kernel_pt_reference",
+    "pt-compiled": "kernel.py::kernel_pt_compiled",
     "fi-baseline": "kernel.py::kernel_fi_baseline",
     "cuda-v1": "kernel.cu::kernel_cuda",
     "cuda-v4": "kernel.cu::kernel_cuda_v4",
@@ -34,11 +35,13 @@ def load_algo_functions() -> dict:
         kernel_fi_baseline,
         kernel_fla_recurrent,
         kernel_fla_tma,
+        kernel_pt_compiled,
         kernel_pt_reference,
     )
 
     return {
         "pt-reference": kernel_pt_reference,
+        "pt-compiled": kernel_pt_compiled,
         "fi-baseline": kernel_fi_baseline,
         "fla-recurrent": kernel_fla_recurrent,
         "fla-tma": kernel_fla_tma,

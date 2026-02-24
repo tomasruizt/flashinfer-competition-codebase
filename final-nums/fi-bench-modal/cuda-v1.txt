@@ -1,0 +1,59 @@
+make[1]: Entering directory '/home/tomasruiz/code/flashinfer-competition-codebase'
+ALGO=cuda-v1 modal run -m scripts.run_modal
+✓ Initialized. View run at https://modal.com/apps/lmu-css/main/ap-i89k49htIzcGrzF6JFPP81
+✓ Created objects.
+├── 🔨 Created mount PythonPackage:scripts
+└── 🔨 Created function run_benchmark.
+Algorithm: cuda-v1 (entry_point: kernel.cu::kernel_cuda)
+Packing solution from source files...
+Solution packed: /home/tomasruiz/code/flashinfer-competition-codebase/solution.json
+  Name: cuda-v1
+  Definition: gdn_decode_qk4_v8_d128_k_last
+  Author: lmu-css
+  Language: cuda
+
+Loading solution...
+Loaded: cuda-v1 (gdn_decode_qk4_v8_d128_k_last)
+
+Running benchmark on Modal B200 (num_workloads=all)...
+
+==========
+== CUDA ==
+==========
+
+CUDA Version 12.8.1
+
+Container image Copyright (c) 2016-2023, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+
+This container image and its contents are governed by the NVIDIA Deep Learning Container License.
+By pulling and using the container, you accept the terms and conditions of this license:
+https://developer.nvidia.com/ngc/nvidia-deep-learning-container-license
+
+A copy of this license is made available in this container at /NGC-DL-CONTAINER-LICENSE for your convenience.
+
+
+gdn_decode_qk4_v8_d128_k_last:
+  Workload 6700a748...: PASSED | 13.862 µs | 93.39x speedup | abs_err=3.12e-02, rel_err=2.97e-02
+  Workload d66ae544...: PASSED | 12.034 µs | 98.86x speedup | abs_err=3.05e-05, rel_err=2.50e-02
+  Workload bf115ff9...: PASSED | 11.933 µs | 100.45x speedup | abs_err=1.22e-04, rel_err=8.42e-02
+  Workload 30bb1856...: PASSED | 11.951 µs | 98.96x speedup | abs_err=2.86e-05, rel_err=5.59e-02
+  Workload 48a5be68...: PASSED | 12.081 µs | 94.82x speedup | abs_err=1.91e-05, rel_err=3.26e-01
+  Workload 6f09252c...: PASSED | 11.932 µs | 96.88x speedup | abs_err=6.10e-05, rel_err=3.74e-02
+  Workload 1e4e5a87...: PASSED | 11.999 µs | 95.64x speedup | abs_err=3.43e-05, rel_err=8.13e-02
+  Workload 8e3e1aa6...: PASSED | 11.939 µs | 98.72x speedup | abs_err=7.63e-05, rel_err=1.23e-02
+  Workload 741eb2c4...: PASSED | 11.952 µs | 98.97x speedup | abs_err=7.81e-03, rel_err=2.62e-01
+  Workload 562d6431...: PASSED | 11.878 µs | 99.45x speedup | abs_err=4.88e-04, rel_err=4.20e-01
+  Workload cf76ded3...: PASSED | 11.988 µs | 98.28x speedup | abs_err=3.05e-05, rel_err=5.15e-02
+  Workload 55b3b0a4...: PASSED | 11.785 µs | 99.41x speedup | abs_err=4.88e-04, rel_err=2.92e-01
+  Workload 8add0e58...: PASSED | 11.790 µs | 97.94x speedup | abs_err=2.44e-04, rel_err=2.40e-02
+  Workload 5727c2b1...: PASSED | 12.030 µs | 96.46x speedup | abs_err=5.34e-05, rel_err=7.59e-02
+  Workload cc8d77b2...: PASSED | 11.923 µs | 97.51x speedup | abs_err=2.67e-05, rel_err=3.00e-01
+  Workload 3bd97bb8...: PASSED | 11.946 µs | 96.10x speedup | abs_err=1.95e-03, rel_err=2.89e-02
+  Workload f1b6043f...: PASSED | 12.075 µs | 98.00x speedup | abs_err=3.43e-05, rel_err=1.42e-01
+  Workload 8038c14e...: PASSED | 11.820 µs | 101.12x speedup | abs_err=2.29e-05, rel_err=3.07e-02
+  Workload 03436065...: PASSED | 11.991 µs | 98.48x speedup | abs_err=1.56e-02, rel_err=4.10e+01
+  Workload c40fb468...: PASSED | 12.063 µs | 96.87x speedup | abs_err=1.95e-03, rel_err=1.91e-01
+Stopping app - local entrypoint completed.
+Runner terminated.
+✓ App completed. View run at https://modal.com/apps/lmu-css/main/ap-i89k49htIzcGrzF6JFPP81
+make[1]: Leaving directory '/home/tomasruiz/code/flashinfer-competition-codebase'

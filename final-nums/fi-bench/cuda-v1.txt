@@ -1,0 +1,37 @@
+make[1]: Entering directory '/home/tomasruiz/code/flashinfer-competition-codebase'
+python -m scripts.run_local --algo=cuda-v1 -n 0
+Algorithm: cuda-v1 (entry_point: kernel.cu::kernel_cuda)
+Packing solution from source files...
+Solution packed: /home/tomasruiz/code/flashinfer-competition-codebase/solution.json
+  Name: cuda-v1
+  Definition: gdn_decode_qk4_v8_d128_k_last
+  Author: lmu-css
+  Language: cuda
+
+Loading solution...
+Loaded: cuda-v1 (gdn_decode_qk4_v8_d128_k_last)
+
+Running benchmark...
+
+gdn_decode_qk4_v8_d128_k_last:
+  Workload 6700a748...: PASSED | 4.792 µs | 244.60x speedup | abs_err=1.56e-02, rel_err=2.55e+00
+  Workload d66ae544...: PASSED | 4.767 µs | 243.56x speedup | abs_err=3.91e-03, rel_err=3.78e-02
+  Workload bf115ff9...: PASSED | 4.672 µs | 249.55x speedup | abs_err=4.58e-05, rel_err=5.56e-02
+  Workload 30bb1856...: PASSED | 4.749 µs | 244.91x speedup | abs_err=7.81e-03, rel_err=1.67e+00
+  Workload 48a5be68...: PASSED | 4.777 µs | 243.00x speedup | abs_err=1.91e-05, rel_err=1.34e-02
+  Workload 6f09252c...: PASSED | 4.997 µs | 239.90x speedup | abs_err=2.29e-05, rel_err=3.56e-01
+  Workload 1e4e5a87...: PASSED | 5.012 µs | 244.83x speedup | abs_err=2.44e-04, rel_err=2.76e-01
+  Workload 8e3e1aa6...: PASSED | 4.770 µs | 243.83x speedup | abs_err=9.77e-04, rel_err=2.93e+00
+  Workload 741eb2c4...: PASSED | 4.987 µs | 229.37x speedup | abs_err=4.88e-04, rel_err=2.30e-01
+  Workload 562d6431...: PASSED | 4.747 µs | 244.65x speedup | abs_err=7.81e-03, rel_err=1.94e-02
+  Workload cf76ded3...: PASSED | 4.878 µs | 244.86x speedup | abs_err=3.05e-05, rel_err=3.80e-02
+  Workload 55b3b0a4...: PASSED | 4.688 µs | 247.17x speedup | abs_err=1.22e-04, rel_err=4.15e-02
+  Workload 8add0e58...: PASSED | 4.950 µs | 233.65x speedup | abs_err=1.91e-05, rel_err=4.55e-02
+  Workload 5727c2b1...: PASSED | 4.744 µs | 243.64x speedup | abs_err=3.81e-05, rel_err=7.64e-02
+  Workload cc8d77b2...: PASSED | 4.675 µs | 245.41x speedup | abs_err=2.48e-05, rel_err=1.20e-01
+  Workload 3bd97bb8...: PASSED | 4.776 µs | 240.38x speedup | abs_err=9.77e-04, rel_err=1.76e-02
+  Workload f1b6043f...: PASSED | 4.769 µs | 242.89x speedup | abs_err=1.95e-03, rel_err=1.69e-02
+  Workload 8038c14e...: PASSED | 4.956 µs | 237.76x speedup | abs_err=1.56e-02, rel_err=1.30e-02
+  Workload 03436065...: PASSED | 4.984 µs | 239.60x speedup | abs_err=3.12e-02, rel_err=3.34e-02
+  Workload c40fb468...: PASSED | 4.708 µs | 249.18x speedup | abs_err=3.43e-05, rel_err=7.93e-03
+make[1]: Leaving directory '/home/tomasruiz/code/flashinfer-competition-codebase'

@@ -1,0 +1,79 @@
+✓ Initialized. View run at 
+https://modal.com/apps/lmu-css/main/ap-zkZcPqOAfu4pJSqMz4iDYs
+✓ Created objects.
+├── 🔨 Created mount 
+│   /home/tomasruiz/code/flashinfer-competition-codebase/solution
+├── 🔨 Created mount 
+│   /home/tomasruiz/code/flashinfer-competition-codebase/scripts
+├── 🔨 Created mount PythonPackage:scripts
+└── 🔨 Created function run_nvbench.
+Running NVBench on Modal B200: fla-recurrent, fla-tma, pt-reference, pt-compiled, fi-baseline, cuda-v1, cuda-v4
+
+==========
+== CUDA ==
+==========
+
+CUDA Version 12.8.1
+
+Container image Copyright (c) 2016-2023, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+
+This container image and its contents are governed by the NVIDIA Deep Learning Container License.
+By pulling and using the container, you accept the terms and conditions of this license:
+https://developer.nvidia.com/ngc/nvidia-deep-learning-container-license
+
+A copy of this license is made available in this container at /NGC-DL-CONTAINER-LICENSE for your convenience.
+
+# Devices
+
+## [0] `NVIDIA B200`
+* SM Version: 1000 (PTX Version: 1000)
+* Number of SMs: 148
+* SM Default Clock Rate: 1965 MHz
+* Global Memory: 182005 MiB Free / 182631 MiB Total
+* Global Memory Bus Peak: 7672 GB/sec (7680-bit DDR @3996MHz)
+* Max Shared Memory: 228 KiB/SM, 48 KiB/Block
+* L2 Cache Size: 129536 KiB
+* Maximum Active Blocks: 32/SM
+* Maximum Active Threads: 2048/SM, 1024/Block
+* Available Registers: 65536/SM, 65536/Block
+* ECC Enabled: Yes
+
+# Log
+
+```
+Run:  [1/7] gdn_decode [Device=0 Algo=fla-recurrent]
+Pass: Cold: 0.007079ms GPU, 0.074759ms CPU, 0.50s total GPU, 9.57s total wall, 70640x 
+Run:  [2/7] gdn_decode [Device=0 Algo=fla-tma]
+Pass: Cold: 0.014698ms GPU, 0.082963ms CPU, 0.50s total GPU, 4.57s total wall, 34032x 
+Run:  [3/7] gdn_decode [Device=0 Algo=pt-reference]
+Pass: Cold: 0.546833ms GPU, 1.955430ms CPU, 0.51s total GPU, 1.86s total wall, 928x 
+Run:  [4/7] gdn_decode [Device=0 Algo=pt-compiled]
+/usr/local/lib/python3.12/site-packages/torch/_inductor/compile_fx.py:321: UserWarning: TensorFloat32 tensor cores for float32 matrix multiplication available but not enabled. Consider setting `torch.set_float32_matmul_precision('high')` for better performance.
+  warnings.warn(
+Pass: Cold: 0.283259ms GPU, 1.007422ms CPU, 0.50s total GPU, 1.86s total wall, 1766x 
+Run:  [5/7] gdn_decode [Device=0 Algo=fi-baseline]
+Pass: Cold: 0.008086ms GPU, 0.060728ms CPU, 0.50s total GPU, 7.37s total wall, 61840x 
+Run:  [6/7] gdn_decode [Device=0 Algo=cuda-v1]
+Pass: Cold: 0.007374ms GPU, 0.047734ms CPU, 0.50s total GPU, 7.30s total wall, 67808x 
+Run:  [7/7] gdn_decode [Device=0 Algo=cuda-v4]
+Pass: Cold: 0.007337ms GPU, 0.047401ms CPU, 0.50s total GPU, 7.32s total wall, 68144x 
+```
+
+# Benchmark Results
+
+## gdn_decode
+
+### [0] NVIDIA B200
+
+|     Algo      |    Read     |    Write    | Samples | CPU Time  | Noise  |  GPU Time  | Noise  | GlobalMem BW | BWUtil |
+|---------------|-------------|-------------|---------|-----------|--------|------------|--------|--------------|--------|
+| fla-recurrent | 516.000 KiB | 514.000 KiB |  70640x | 74.759 us | 21.01% |   7.079 us |  1.71% | 149.000 GB/s |  1.94% |
+|       fla-tma | 516.000 KiB | 514.000 KiB |  34032x | 82.963 us | 10.41% |  14.698 us |  6.30% |  71.762 GB/s |  0.94% |
+|  pt-reference | 516.000 KiB | 514.000 KiB |    928x |  1.955 ms |  2.77% | 546.833 us |  3.40% |   1.929 GB/s |  0.03% |
+|   pt-compiled | 516.000 KiB | 514.000 KiB |   1766x |  1.007 ms |  7.13% | 283.259 us |  0.22% |   3.724 GB/s |  0.05% |
+|   fi-baseline | 516.000 KiB | 514.000 KiB |  61840x | 60.728 us | 13.67% |   8.086 us | 11.78% | 130.444 GB/s |  1.70% |
+|       cuda-v1 | 516.000 KiB | 514.000 KiB |  67808x | 47.734 us | 21.80% |   7.374 us |  6.75% | 143.030 GB/s |  1.86% |
+|       cuda-v4 | 516.000 KiB | 514.000 KiB |  68144x | 47.401 us | 16.57% |   7.337 us |  4.49% | 143.744 GB/s |  1.87% |
+Stopping app - local entrypoint completed.
+✓ App completed. View run at 
+https://modal.com/apps/lmu-css/main/ap-zkZcPqOAfu4pJSqMz4iDYs

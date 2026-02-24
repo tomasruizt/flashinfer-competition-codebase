@@ -1,0 +1,51 @@
+python -m scripts.bench_nvbench --algo=all
+# Devices
+
+## [0] `NVIDIA GeForce RTX 3090`
+* SM Version: 860 (PTX Version: 860)
+* Number of SMs: 82
+* SM Default Clock Rate: 1785 MHz
+* Global Memory: 23771 MiB Free / 24117 MiB Total
+* Global Memory Bus Peak: 936 GB/sec (384-bit DDR @9751MHz)
+* Max Shared Memory: 100 KiB/SM, 48 KiB/Block
+* L2 Cache Size: 6144 KiB
+* Maximum Active Blocks: 16/SM
+* Maximum Active Threads: 1536/SM, 1024/Block
+* Available Registers: 65536/SM, 65536/Block
+* ECC Enabled: No
+
+# Log
+
+```
+Run:  [1/7] gdn_decode [Device=0 Algo=pt-reference]
+Pass: Cold: 0.276125ms GPU, 1.940044ms CPU, 0.82s total GPU, 5.80s total wall, 2960x 
+Run:  [2/7] gdn_decode [Device=0 Algo=pt-compiled]
+Pass: Cold: 0.138852ms GPU, 1.058037ms CPU, 0.50s total GPU, 3.90s total wall, 3616x 
+Run:  [3/7] gdn_decode [Device=0 Algo=fi-baseline]
+Pass: Cold: 0.005535ms GPU, 0.072098ms CPU, 0.50s total GPU, 10.93s total wall, 90336x 
+Run:  [4/7] gdn_decode [Device=0 Algo=fla-recurrent]
+Warn: GPU throttled below threshold (1287.11 MHz / 1785.00 MHz) (72% < 75%) on sample 36175. Discarding previous trial and pausing for 0.050s.
+Pass: Cold: 0.005284ms GPU, 0.078995ms CPU, 0.50s total GPU, 12.26s total wall, 94624x 
+Run:  [5/7] gdn_decode [Device=0 Algo=fla-tma]
+Pass: Cold: 0.009037ms GPU, 0.074520ms CPU, 0.50s total GPU, 6.17s total wall, 55328x 
+Run:  [6/7] gdn_decode [Device=0 Algo=cuda-v1]
+Pass: Cold: 0.005831ms GPU, 0.048906ms CPU, 0.50s total GPU, 8.17s total wall, 85744x 
+Run:  [7/7] gdn_decode [Device=0 Algo=cuda-v4]
+Pass: Cold: 0.005318ms GPU, 0.048185ms CPU, 0.50s total GPU, 9.14s total wall, 94032x 
+```
+
+# Benchmark Results
+
+## gdn_decode
+
+### [0] NVIDIA GeForce RTX 3090
+
+|     Algo      |    Read     |    Write    | Samples | CPU Time  | Noise |  GPU Time  | Noise | GlobalMem BW | BWUtil |
+|---------------|-------------|-------------|---------|-----------|-------|------------|-------|--------------|--------|
+|  pt-reference | 516.000 KiB | 514.000 KiB |   2960x |  1.940 ms | 1.91% | 276.125 us | 1.85% |   3.820 GB/s |  0.41% |
+|   pt-compiled | 516.000 KiB | 514.000 KiB |   3616x |  1.058 ms | 4.36% | 138.852 us | 2.14% |   7.596 GB/s |  0.81% |
+|   fi-baseline | 516.000 KiB | 514.000 KiB |  90336x | 72.098 us | 7.47% |   5.535 us | 8.90% | 190.544 GB/s | 20.36% |
+| fla-recurrent | 516.000 KiB | 514.000 KiB |  94624x | 78.995 us | 3.46% |   5.284 us | 8.63% | 199.603 GB/s | 21.32% |
+|       fla-tma | 516.000 KiB | 514.000 KiB |  55328x | 74.520 us | 3.38% |   9.037 us | 4.72% | 116.709 GB/s | 12.47% |
+|       cuda-v1 | 516.000 KiB | 514.000 KiB |  85744x | 48.906 us | 3.62% |   5.831 us | 8.02% | 180.869 GB/s | 19.32% |
+|       cuda-v4 | 516.000 KiB | 514.000 KiB |  94032x | 48.185 us | 4.00% |   5.318 us | 7.59% | 198.344 GB/s | 21.19% |

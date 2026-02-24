@@ -17,6 +17,7 @@ import sys
 import modal
 
 from .modal_config import TRACE_SET_PATH, image as base_image, trace_volume
+from .shared import ALGO_ENTRY_POINTS, ALGO_LANGUAGES
 
 app = modal.App("nvbench-gdn")
 
@@ -30,9 +31,9 @@ image = (
 
 algo = os.getenv("ALGO", "all")
 
-# Algo groups for convenience
-CUDA_ALGOS = ["cuda-v1", "cuda-v4"]
-TRITON_ALGOS = ["fla-recurrent", "fi-baseline", "fla-tma"]
+# Derive algo groups from shared.py
+CUDA_ALGOS = list(ALGO_LANGUAGES.keys())
+TRITON_ALGOS = [a for a in ALGO_ENTRY_POINTS if a not in ALGO_LANGUAGES]
 ALL_ALGOS = TRITON_ALGOS + CUDA_ALGOS
 
 

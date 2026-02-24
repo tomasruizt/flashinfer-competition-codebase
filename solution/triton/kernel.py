@@ -18,7 +18,6 @@ triton.set_allocator(
 
 
 @torch.no_grad()
-@torch.compile(fullgraph=True)
 def kernel_pt_reference(q, k, v, state, A_log, a, dt_bias, b, scale, output, new_state):
     """
     Gated Delta Net decode reference implementation (k-last layout).
@@ -107,6 +106,9 @@ def kernel_pt_reference(q, k, v, state, A_log, a, dt_bias, b, scale, output, new
             output[b_idx, 0, h_idx] = (scale * (q_h @ h_state)).to(torch.bfloat16)  # [V] into [B,1,H,V]
             new_state[b_idx, h_idx] = h_state.transpose(-1, -2)  # [K,V] -> [V,K] back to storage layout
     # fmt: on
+
+
+kernel_pt_compiled = torch.compile(kernel_pt_reference, fullgraph=True)
 
 
 @torch.no_grad()

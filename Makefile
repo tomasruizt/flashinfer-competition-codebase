@@ -3,7 +3,7 @@
 #   NUM_WORKLOADS=3 make modal-fla
 # TRITON_PRINT_AUTOTUNING is always on (logs go to logs/fib-bench/)
 
-.PHONY: bench-fla bench-pt bench-tma bench-fi bench-cuda bench-cuda-v4 modal-fla modal-pt modal-tma modal-fi modal-cuda modal-get-logs modal-clear-logs bench-fla-all bench-tma-all clean-empty-logs proton-fla proton-example clean-triton-cache document-speedups ncu-fla ncu-fi ncu-cuda ncu-cuda-v4 ncu-export-fla ncu-export-fi ncu-export-cuda ncu-export-cuda-v4 nvbench nvbench-fla nvbench-fi nvbench-cuda nvbench-cuda-v4 nvbench-all nvbench-modal-fla nvbench-modal-fi nvbench-modal-cuda-all nvbench-modal-all
+.PHONY: bench-fla bench-pt bench-pt-compiled bench-tma bench-fi bench-cuda bench-cuda-v4 modal-fla modal-pt modal-pt-compiled modal-tma modal-fi modal-cuda modal-get-logs modal-clear-logs bench-fla-all bench-tma-all clean-empty-logs proton-fla proton-example clean-triton-cache document-speedups ncu-fla ncu-fi ncu-cuda ncu-cuda-v4 ncu-export-fla ncu-export-fi ncu-export-cuda ncu-export-cuda-v4 nvbench nvbench-fla nvbench-fi nvbench-cuda nvbench-cuda-v4 nvbench-all nvbench-modal-fla nvbench-modal-fi nvbench-modal-cuda-all nvbench-modal-all
 
 export TRITON_PRINT_AUTOTUNING=1
 N ?= 0
@@ -20,6 +20,9 @@ bench-fla:
 
 bench-pt:
 	python -m scripts.run_local --algo=pt-reference -n $(N)
+
+bench-pt-compiled:
+	python -m scripts.run_local --algo=pt-compiled -n $(N)
 
 bench-tma:
 	python -m scripts.run_local --algo=fla-tma -n $(N)
@@ -41,6 +44,9 @@ modal-tma:
 
 modal-pt:
 	ALGO=pt-reference modal run -m scripts.run_modal
+
+modal-pt-compiled:
+	ALGO=pt-compiled modal run -m scripts.run_modal
 
 modal-fi:
 	ALGO=fi-baseline modal run -m scripts.run_modal
@@ -204,6 +210,7 @@ bench-gen-all-results:
 	$(MAKE) bench-fla > final-nums/fi-bench/fla-recurrent.txt
 	$(MAKE) bench-tma > final-nums/fi-bench/fla-tma.txt
 	$(MAKE) bench-pt > final-nums/fi-bench/pt-reference.txt
+	$(MAKE) bench-pt-compiled > final-nums/fi-bench/pt-compiled.txt
 	$(MAKE) bench-fi > final-nums/fi-bench/fi-baseline.txt
 	$(MAKE) bench-cuda > final-nums/fi-bench/cuda-v1.txt
 	$(MAKE) bench-cuda-v4 > final-nums/fi-bench/cuda-v4.txt
@@ -213,6 +220,7 @@ modal-gen-all-results:
 	$(MAKE) modal-fla > final-nums/fi-bench-modal/fla-recurrent.txt
 	$(MAKE) modal-tma > final-nums/fi-bench-modal/fla-tma.txt
 	$(MAKE) modal-pt > final-nums/fi-bench-modal/pt-reference.txt
+	$(MAKE) modal-pt-compiled > final-nums/fi-bench-modal/pt-compiled.txt
 	$(MAKE) modal-fi > final-nums/fi-bench-modal/fi-baseline.txt
 	$(MAKE) modal-cuda > final-nums/fi-bench-modal/cuda-v1.txt
 	$(MAKE) modal-cuda-v4 > final-nums/fi-bench-modal/cuda-v4.txt

@@ -1,0 +1,57 @@
+ALGO=cuda-v4 modal run -m scripts.run_modal
+✓ Initialized. View run at https://modal.com/apps/lmu-css/main/ap-txnPVmZwPzDHVdazRnfA3M
+✓ Created objects.
+├── 🔨 Created mount PythonPackage:scripts
+└── 🔨 Created function run_benchmark.
+Algorithm: cuda-v4 (entry_point: kernel.cu::kernel_cuda_v4)
+Packing solution from source files...
+Solution packed: /home/tomasruiz/code/flashinfer-competition-codebase/solution.json
+  Name: cuda-v4
+  Definition: gdn_decode_qk4_v8_d128_k_last
+  Author: lmu-css
+  Language: cuda
+
+Loading solution...
+Loaded: cuda-v4 (gdn_decode_qk4_v8_d128_k_last)
+
+Running benchmark on Modal B200 (num_workloads=all)...
+
+==========
+== CUDA ==
+==========
+
+CUDA Version 12.8.1
+
+Container image Copyright (c) 2016-2023, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+
+This container image and its contents are governed by the NVIDIA Deep Learning Container License.
+By pulling and using the container, you accept the terms and conditions of this license:
+https://developer.nvidia.com/ngc/nvidia-deep-learning-container-license
+
+A copy of this license is made available in this container at /NGC-DL-CONTAINER-LICENSE for your convenience.
+
+
+gdn_decode_qk4_v8_d128_k_last:
+  Workload 6700a748...: PASSED | 14.172 µs | 88.79x speedup | abs_err=8.01e-05, rel_err=9.17e-02
+  Workload d66ae544...: PASSED | 11.539 µs | 100.76x speedup | abs_err=3.91e-03, rel_err=2.76e-02
+  Workload bf115ff9...: PASSED | 11.406 µs | 105.56x speedup | abs_err=5.34e-05, rel_err=2.27e-02
+  Workload 30bb1856...: PASSED | 11.474 µs | 102.74x speedup | abs_err=1.91e-05, rel_err=3.90e-02
+  Workload 48a5be68...: PASSED | 11.729 µs | 97.62x speedup | abs_err=1.91e-05, rel_err=4.09e-02
+  Workload 6f09252c...: PASSED | 11.261 µs | 101.91x speedup | abs_err=3.91e-03, rel_err=1.90e-01
+  Workload 1e4e5a87...: PASSED | 11.590 µs | 101.37x speedup | abs_err=3.05e-05, rel_err=1.27e-01
+  Workload 8e3e1aa6...: PASSED | 11.591 µs | 103.08x speedup | abs_err=7.81e-03, rel_err=4.86e+00
+  Workload 741eb2c4...: PASSED | 11.515 µs | 100.55x speedup | abs_err=9.77e-04, rel_err=3.64e-02
+  Workload 562d6431...: PASSED | 11.426 µs | 111.10x speedup | abs_err=3.91e-03, rel_err=2.40e-02
+  Workload cf76ded3...: PASSED | 11.579 µs | 101.51x speedup | abs_err=2.29e-05, rel_err=6.47e-02
+  Workload 55b3b0a4...: PASSED | 11.709 µs | 98.91x speedup | abs_err=3.91e-03, rel_err=5.83e-02
+  Workload 8add0e58...: PASSED | 11.510 µs | 107.34x speedup | abs_err=1.95e-03, rel_err=7.33e-01
+  Workload 5727c2b1...: PASSED | 11.696 µs | 99.88x speedup | abs_err=9.77e-04, rel_err=3.87e-01
+  Workload cc8d77b2...: PASSED | 11.639 µs | 112.37x speedup | abs_err=3.43e-05, rel_err=2.47e-01
+  Workload 3bd97bb8...: PASSED | 11.581 µs | 103.91x speedup | abs_err=4.88e-04, rel_err=2.76e-02
+  Workload f1b6043f...: PASSED | 11.622 µs | 106.81x speedup | abs_err=7.81e-03, rel_err=7.83e-02
+  Workload 8038c14e...: PASSED | 11.533 µs | 109.21x speedup | abs_err=2.29e-05, rel_err=4.96e-02
+  Workload 03436065...: PASSED | 11.609 µs | 100.81x speedup | abs_err=7.81e-03, rel_err=2.43e-01
+  Workload c40fb468...: PASSED | 11.433 µs | 100.93x speedup | abs_err=3.05e-05, rel_err=1.91e-02
+Stopping app - local entrypoint completed.
+Runner terminated.
+✓ App completed. View run at https://modal.com/apps/lmu-css/main/ap-txnPVmZwPzDHVdazRnfA3M
