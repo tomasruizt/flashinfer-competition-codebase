@@ -41,7 +41,7 @@ GPU: B200 via [Modal](https://modal.com) (serverless cloud GPU platform). All al
 
 ## CUPTI Benchmarks
 
-This comparison uses FlashInfer's `bench_gpu_time(enable_cupti=True)` for pure GPU kernel timing via CUPTI (CUDA Profiling Tools Interface) hardware callbacks, the same methodology FlashInfer uses in their own benchmarks ([PR #2370](https://github.com/flashinfer-ai/flashinfer/pull/2370), [PR #2498](https://github.com/flashinfer-ai/flashinfer/pull/2498)).
+This comparison uses FlashInfer's `bench_gpu_time(enable_cupti=True)` for pure GPU kernel timing via CUPTI (CUDA Profiling Tools Interface) hardware callbacks, the same methodology FlashInfer uses in their own benchmarks ([PR #2405](https://github.com/flashinfer-ai/flashinfer/pull/2405)).
 CUPTI strips away all CPU launch overhead, measuring only kernel execution on the GPU.
 Speedup is relative to the PyTorch eager baseline; the last column is relative to the FlashInfer CuTe-DSL kernel.
 
