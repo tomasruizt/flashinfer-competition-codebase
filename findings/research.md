@@ -343,9 +343,15 @@ Both eliminate the GPU idle bubble, through different mechanisms:
 
 Both produce equivalent GPU timing results (~5 µs), confirming they measure the same thing.
 
-### Remaining ~1 µs gap (NCU vs benchmarks)
+### Three tiers of GPU timing
 
-NCU reports pure kernel execution (CUPTI-based). CUDA event timing includes a small residual overhead: event recording latency, and any GPU-side scheduling delay between the start event and the kernel's first instruction. This ~1 µs delta is expected and consistent across NVBench and flashinfer-bench.
+Three measurement methods, each including progressively more overhead (B200 fla-recurrent numbers):
+
+1. **CUPTI (~2.6 us)**: Pure GPU kernel time via hardware callbacks. Tools: `bench_gpu_time(enable_cupti=True)`, NCU. CUPTI (CUDA Profiling Tools Interface) hooks into the GPU driver to capture kernel start/stop timestamps, stripping away all CPU-side overhead. FlashInfer's own benchmark (`benchmarks/bench_gdn_decode.py`) uses `enable_cupti=True` exclusively, which is why their published numbers are in this tier.
+
+2. **CUDA Events (~7.1 us)**: Kernel time + event record overhead. Tools: `bench_gpu_time()` (default), NVBench. The ~4.5 us gap vs CUPTI is CPU launch overhead: event recording latency and GPU-side scheduling delay between the start event and the kernel's first instruction. Consistent across NVBench and `bench_gpu_time`.
+
+3. **Sync-in-loop (~38 us)**: Kernel time + full CPU synchronization per iteration. Tool: fi-bench's buggy `do_bench()`. The ~30 us gap vs CUDA events is the `torch.cuda.synchronize()` stall documented above.
 
 ### Upstream status
 

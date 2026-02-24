@@ -1,0 +1,43 @@
+make[1]: Entering directory '/home/tomasruiz/code/flashinfer-competition-codebase'
+ALGO=all modal run -m scripts.bench_fi_timing_modal
+✓ Initialized. View run at https://modal.com/apps/lmu-css/main/ap-0w6FtkiuAuVg22ayaSnyY8
+✓ Created objects.
+├── 🔨 Created mount /home/tomasruiz/code/flashinfer-competition-codebase/scripts
+├── 🔨 Created mount /home/tomasruiz/code/flashinfer-competition-codebase/solution
+├── 🔨 Created mount PythonPackage:scripts
+└── 🔨 Created function run_fi_timing.
+Running FlashInfer bench_gpu_time on Modal B200: fla-recurrent, fla-tma, pt-reference, pt-compiled, fi-baseline, cuda-v1, cuda-v4
+
+==========
+== CUDA ==
+==========
+
+CUDA Version 12.8.1
+
+Container image Copyright (c) 2016-2023, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+
+This container image and its contents are governed by the NVIDIA Deep Learning Container License.
+By pulling and using the container, you accept the terms and conditions of this license:
+https://developer.nvidia.com/ngc/nvidia-deep-learning-container-license
+
+A copy of this license is made available in this container at /NGC-DL-CONTAINER-LICENSE for your convenience.
+
+fla-recurrent: median=2.56 us  (n=16)
+fla-tma: median=12.70 us  (n=1034)
+pt-reference: median=1946.32 us  (n=67)
+pt-compiled: median=835.15 us  (n=122)
+fi-baseline: median=3.36 us  (n=1089)
+cuda-v1: median=3.04 us  (n=1205)
+cuda-v4: median=2.62 us  (n=1214)
+
+         algo  median_us  min_us  max_us  iters
+fla-recurrent       2.56    2.33    3.00     16
+      cuda-v4       2.62    2.43    3.10   1214
+      cuda-v1       3.04    2.85    3.49   1205
+  fi-baseline       3.36    3.07    4.00   1089
+      fla-tma      12.70   12.26   13.34   1034
+  pt-compiled     835.15  793.49 2078.25    122
+ pt-reference    1946.32 1846.00 3407.12     67
+Stopping app - local entrypoint completed.
+✓ App completed. View run at https://modal.com/apps/lmu-css/main/ap-0w6FtkiuAuVg22ayaSnyY8
+make[1]: Leaving directory '/home/tomasruiz/code/flashinfer-competition-codebase'

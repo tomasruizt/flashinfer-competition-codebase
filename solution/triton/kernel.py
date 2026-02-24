@@ -2,6 +2,8 @@ import math
 import os
 import torch
 import torch.nn.functional as F
+
+torch.set_float32_matmul_precision("high")
 import triton
 import triton.language as tl
 import triton.profiler.language as pl

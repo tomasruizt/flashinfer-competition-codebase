@@ -25,6 +25,8 @@
   - `profile_ncu.py` — NCU profiling (launched by `ncu`, not run directly).
   - `bench_nvbench.py` — NVBench timing validation.
   - `bench_nvbench_modal.py` — NVBench on Modal B200.
+  - `bench_fi_timing.py` — FlashInfer `bench_gpu_time` with CUPTI (pure GPU kernel time). Also used by Modal script.
+  - `bench_fi_timing_modal.py` — FlashInfer CUPTI timing on Modal B200.
   - `log_speedups.py` — Parse bench logs into `findings/speedups.csv`.
 
 ### Import conventions
@@ -265,7 +267,9 @@ NVBench confirms the kernel is latency-bound on B200: <2% of 7.7 TB/s bandwidth 
 - Validated with NVBench (`cuda-bench`): ~5.1 µs (fla), ~5.4 µs (fi)
 - NVBench solves the same problem with a "blocking kernel" ([talk](http://www.youtube.com/watch?v=CtrqBmYtSEk&t=838))
 - Script: `scripts/bench_nvbench.py`, targets: `make nvbench-fla`, `make nvbench-fi`
-- Full analysis (problem, fix, NVBench comparison): `findings/research.md` under "Benchmark Timing Fix"
+- **CUPTI timing** (`bench_gpu_time(enable_cupti=True)`) gives pure GPU kernel time, matching NCU. This is what FlashInfer uses in their own benchmarks. Three tiers: CUPTI (~2.6 us) < CUDA events/NVBench (~7 us) < sync-in-loop/fi-bench (~38 us). The ~4 us gap between CUPTI and CUDA events is CPU launch overhead.
+- Script: `scripts/bench_fi_timing.py`, targets: `make fi-timing`, `make fi-timing-modal`
+- Full analysis (problem, fix, NVBench comparison, three timing tiers): `findings/research.md` under "Benchmark Timing Fix"
 
 ## Misc Kernel Notes
 - `tensor.set_()` can alias DPS output to input storage (zero-copy) since benchmark clones args each iter
@@ -353,6 +357,9 @@ ALGO=cuda-v4 make nvbench   # NVBench single algo (local)
 ALGO=cuda-v1,cuda-v4 make nvbench  # NVBench multi-algo in one table
 ALGO=cuda-v4 make nvbench-modal    # NVBench on Modal B200
 make nvbench-all            # NVBench all algos (local)
+make fi-timing              # FlashInfer CUPTI timing (default algo)
+make fi-timing-modal        # FlashInfer CUPTI timing on Modal B200
+ALGO=all make fi-timing     # CUPTI timing all algos
 make clean-triton-cache     # clear ~/.triton/cache
 ```
 - Env var overrides: `NUM_WORKLOADS=3 make modal-fla` (limit workloads), `ALGO=... make modal-fla`

@@ -36,6 +36,7 @@ def run_benchmark(algo_names: list[str]):
         times_ms = bench_gpu_time(
             fn=lambda kf=kernel_fn: kf(**tensors),
             cold_l2_cache=True,
+            enable_cupti=True,
         )
         times_us = [t * 1000.0 for t in times_ms]
         med = statistics.median(times_us)

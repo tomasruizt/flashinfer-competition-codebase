@@ -1,0 +1,19 @@
+make[1]: Entering directory '/home/tomasruiz/code/flashinfer-competition-codebase'
+python -m scripts.bench_fi_timing --algo=all
+fla-recurrent: median=3.26 us  (n=63)
+fla-tma: median=7.23 us  (n=2179)
+pt-reference: median=2184.45 us  (n=64)
+pt-compiled: median=1133.96 us  (n=104)
+fi-baseline: median=3.68 us  (n=1737)
+cuda-v1: median=3.97 us  (n=3906)
+cuda-v4: median=3.42 us  (n=3937)
+
+         algo  median_us  min_us  max_us  iters
+fla-recurrent       3.26    3.17    3.39     63
+      cuda-v4       3.42    3.23    3.84   3937
+  fi-baseline       3.68    3.49    4.06   1737
+      cuda-v1       3.97    3.78    4.32   3906
+      fla-tma       7.23    7.01    7.46   2179
+  pt-compiled    1133.96 1123.43 1256.48    104
+ pt-reference    2184.45 2160.81 2259.34     64
+make[1]: Leaving directory '/home/tomasruiz/code/flashinfer-competition-codebase'
