@@ -15,6 +15,9 @@ NCU_RESULTS_DIR := profiles/ncu
 NCU_TXT_DIR := profiles/ncu-txt
 TRITON_PROFILE_ENV := TRITON_ALWAYS_COMPILE=1 TRITON_KERNEL_DUMP=1 TRITON_DUMP_DIR=profiles/ttgir_dump
 
+pack-solution:
+	python -m scripts.pack_solution
+
 bench-fla:
 	python -m scripts.run_local --algo=fla-recurrent -n $(N)
 
