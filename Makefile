@@ -15,6 +15,25 @@ NCU_RESULTS_DIR := profiles/ncu
 NCU_TXT_DIR := profiles/ncu-txt
 TRITON_PROFILE_ENV := TRITON_ALWAYS_COMPILE=1 TRITON_KERNEL_DUMP=1 TRITON_DUMP_DIR=profiles/ttgir_dump
 
+official-bench-gdn-decode-baseline:
+	flashinfer-bench run \
+		--local=../mlsys26-contest \
+		--definitions=gdn_decode_qk4_v8_d128_k_last \
+		--solutions=flashinfer_wrapper_9b7f1e \
+		--use-isolated-runner\
+		--timeout=300
+
+official-bench-gdn-decode-fla-recurrent: pack-fla-to-dataset
+	flashinfer-bench run \
+		--local=../mlsys26-contest \
+		--definitions gdn_decode_qk4_v8_d128_k_last \
+		--solutions=fla-recurrent \
+		--save-results --use-isolated-runner --log-level INFO --resume --timeout 300
+
+pack-fla-to-dataset:
+	python -m scripts.pack_solution
+	cp solution.json ../mlsys26-contest/solutions/baseline/gdn/gdn_decode_qk4_v8_d128_k_last/fla-recurrent.json
+
 pack-solution:
 	python -m scripts.pack_solution
 

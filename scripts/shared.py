@@ -93,4 +93,10 @@ def parse_args():
         default=0,
         help="Number of workloads to run (default: 0 = all)",
     )
+    parser.add_argument(
+        "--workload-id",
+        type=str,
+        default=None,
+        help="UUID prefix to filter a specific workload (e.g. 'a5714b69')",
+    )
     return parser.parse_args()

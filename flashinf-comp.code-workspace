@@ -5,6 +5,12 @@
 		},
 		{
 			"path": "../mlsys26-contest"
+		},
+		{
+			"path": "../fi-comp-rl"
+		},
+		{
+			"path": "../mlsys26-agent-baseline"
 		}
 	],
 	"settings": {}

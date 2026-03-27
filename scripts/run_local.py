@@ -30,7 +30,10 @@ def get_trace_set_path() -> str:
 
 
 def run_benchmark(
-    solution: Solution, config: BenchmarkConfig = None, num_workloads: int = 0
+    solution: Solution,
+    config: BenchmarkConfig = None,
+    num_workloads: int = 0,
+    workload_id: str = None,
 ) -> dict:
     """Run benchmark locally and return results."""
     if config is None:
@@ -52,6 +55,11 @@ def run_benchmark(
 
     if not workloads:
         raise ValueError(f"No workloads found for definition '{solution.definition}'")
+
+    if workload_id:
+        workloads = [w for w in workloads if w.workload.uuid.startswith(workload_id)]
+        if not workloads:
+            raise ValueError(f"No workload found matching UUID prefix '{workload_id}'")
 
     if num_workloads > 0:
         workloads = workloads[:num_workloads]
@@ -132,7 +140,9 @@ def main():
     print(f"Loaded: {solution.name} ({solution.definition})")
 
     print("\nRunning benchmark...")
-    results = run_benchmark(solution, num_workloads=args.num_workloads)
+    results = run_benchmark(
+        solution, num_workloads=args.num_workloads, workload_id=args.workload_id
+    )
 
     if not results:
         print("No results returned!")

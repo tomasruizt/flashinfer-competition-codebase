@@ -7,8 +7,9 @@ TRACE_SET_PATH = "/data"
 
 base_image = (
     modal.Image.from_registry("nvidia/cuda:12.8.1-devel-ubuntu22.04", add_python="3.12")
+    .apt_install("git")
     .uv_pip_install(
-        "flashinfer-bench",
+        "flashinfer-bench @ git+https://github.com/flashinfer-ai/flashinfer-bench.git",
         "torch",
         "triton",
         "flashinfer-python",
