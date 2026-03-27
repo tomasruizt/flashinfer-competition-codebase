@@ -129,7 +129,10 @@ def main():
     dps = algo not in ALGO_NO_DPS
     solution_path = pack_solution(
         definition=definition,
-        entry_point=entry_point, name=algo, language=language, dps=dps,
+        entry_point=entry_point,
+        name=algo,
+        language=language,
+        dps=dps,
     )
 
     print("\nLoading solution...")

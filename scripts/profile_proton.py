@@ -28,9 +28,17 @@ DEF_NAME = "gdn_decode_qk4_v8_d128_k_last"
 
 def main():
     parser = argparse.ArgumentParser(description="Profile GDN decode with Proton")
-    parser.add_argument("--op-measure", action="store_true", help="Op measurement mode (instrumentation)")
-    parser.add_argument("--pcsampling", action="store_true", help="Line-by-line PC sampling (CUPTI)")
-    parser.add_argument("--iters", type=int, default=1, help="Number of profiled iterations")
+    parser.add_argument(
+        "--op-measure",
+        action="store_true",
+        help="Op measurement mode (instrumentation)",
+    )
+    parser.add_argument(
+        "--pcsampling", action="store_true", help="Line-by-line PC sampling (CUPTI)"
+    )
+    parser.add_argument(
+        "--iters", type=int, default=1, help="Number of profiled iterations"
+    )
     args = parser.parse_args()
 
     torch._dynamo.config.disable = True
@@ -45,6 +53,7 @@ def main():
         # Enable pl.scope() annotations in the Triton kernel
         os.environ["PROTON_PROFILE"] = "1"
         import triton.profiler.language as pl
+
         pl.enable_semantic("triton")
 
     from solution.triton.kernel import kernel_fla_recurrent
@@ -60,7 +69,9 @@ def main():
     if not args.pcsampling:
         name = str(profiles_dir / "gdn_decode")
         data = "tree" if args.op_measure else "trace"
-        proton.start(name, data=data, backend="instrumentation", mode=proton.mode.Default())
+        proton.start(
+            name, data=data, backend="instrumentation", mode=proton.mode.Default()
+        )
 
     print(f"Profiling ({args.iters} iters)...")
     with proton.scope("profile"):
@@ -78,7 +89,9 @@ def load_workload_tensors(device="cuda", trace_set_path=None):
     workload = trace_set.workloads[DEF_NAME][0].workload
 
     safe_tensors = load_safetensors(definition, workload, trace_set.root)
-    input_list = gen_inputs(definition, workload, device=device, safe_tensors=safe_tensors)
+    input_list = gen_inputs(
+        definition, workload, device=device, safe_tensors=safe_tensors
+    )
     input_names = list(definition.inputs.keys())
     inputs = dict(zip(input_names, input_list))
 

@@ -40,13 +40,15 @@ def run_benchmark(algo_names: list[str]):
         )
         times_us = [t * 1000.0 for t in times_ms]
         med = statistics.median(times_us)
-        rows.append({
-            "algo": name,
-            "median_us": med,
-            "min_us": min(times_us),
-            "max_us": max(times_us),
-            "iters": len(times_us),
-        })
+        rows.append(
+            {
+                "algo": name,
+                "median_us": med,
+                "min_us": min(times_us),
+                "max_us": max(times_us),
+                "iters": len(times_us),
+            }
+        )
         print(f"{name}: median={med:.2f} us  (n={len(times_us)})")
 
     df = pd.DataFrame(rows).sort_values("median_us").reset_index(drop=True)

@@ -132,7 +132,10 @@ def main():
     language = ALGO_LANGUAGES.get(args.algo)
     dps = args.algo not in ALGO_NO_DPS
     solution_path = pack_solution(
-        entry_point=entry_point, name=args.algo, language=language, dps=dps,
+        entry_point=entry_point,
+        name=args.algo,
+        language=language,
+        dps=dps,
         definition=args.definition,
     )
 
@@ -142,8 +145,11 @@ def main():
 
     print("\nRunning benchmark...")
     results = run_benchmark(
-        solution, num_workloads=args.num_workloads, workload_id=args.workload_id,
-        iterations=args.iterations, num_trials=args.num_trials,
+        solution,
+        num_workloads=args.num_workloads,
+        workload_id=args.workload_id,
+        iterations=args.iterations,
+        num_trials=args.num_trials,
     )
 
     if not results:

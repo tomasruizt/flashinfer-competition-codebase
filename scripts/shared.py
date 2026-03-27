@@ -58,7 +58,10 @@ def load_algo_functions() -> dict:
         kernel_pt_compiled,
         kernel_pt_reference,
     )
-    from solution.triton.prefill_kernel import kernel_prefill_fla_chunk, kernel_prefill_reference
+    from solution.triton.prefill_kernel import (
+        kernel_prefill_fla_chunk,
+        kernel_prefill_reference,
+    )
 
     return {
         "pt-reference": kernel_pt_reference,

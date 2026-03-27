@@ -43,6 +43,7 @@ def kernel_cuda(q, k, v, state, A_log, a, dt_bias, b, scale, output, new_state):
 
 def _make_cuda_entry(symbol):
     """Create a DPS entry point that calls the given TVM FFI symbol."""
+
     @torch.no_grad()
     def entry(q, k, v, state, A_log, a, dt_bias, b, scale, output, new_state):
         if scale is None or scale == 0.0:
@@ -51,6 +52,7 @@ def _make_cuda_entry(symbol):
             scale_ = float(scale)
         fn = getattr(_get_mod(), symbol)
         fn(q, k, v, state, A_log, a, dt_bias, b, scale_, output, new_state)
+
     entry.__name__ = symbol
     return entry
 
