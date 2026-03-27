@@ -132,7 +132,8 @@ def main():
     language = ALGO_LANGUAGES.get(args.algo)
     dps = args.algo not in ALGO_NO_DPS
     solution_path = pack_solution(
-        entry_point=entry_point, name=args.algo, language=language, dps=dps
+        entry_point=entry_point, name=args.algo, language=language, dps=dps,
+        definition=args.definition,
     )
 
     print("\nLoading solution...")

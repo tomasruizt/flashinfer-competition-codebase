@@ -1,6 +1,6 @@
 [solution]
 name = "<placeholder>"      # Solution name, injected at runtime based on algorithm
-definition = "gdn_decode_qk4_v8_d128_k_last"  # Decode kernel for GDN track
+definition = "<placeholder>"  # Injected at runtime based on --definition flag
 author = "lmu-css"                # Team/author name
 
 [build]

@@ -36,6 +36,7 @@ def load_config() -> dict:
 
 
 def pack_solution(
+    definition: str,
     output_path: Path = None,
     entry_point: str = None,
     name: str = None,
@@ -50,6 +51,7 @@ def pack_solution(
 
     # Use explicit name override, or base name from config (e.g. with algo suffix from run_local)
     solution_name = name if name is not None else solution_config["name"]
+    solution_config["definition"] = definition
 
     if language is None:
         language = build_config["language"]
@@ -112,6 +114,7 @@ def main():
             name=args.algo,
             language=language,
             dps=dps,
+            definition=args.definition,
         )
     except Exception as e:
         print(f"Error: {e}", file=sys.stderr)

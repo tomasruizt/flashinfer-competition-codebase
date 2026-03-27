@@ -115,6 +115,7 @@ def print_results(results: dict):
 
 algo = os.getenv("ALGO", "fla-recurrent")
 num_workloads = int(os.getenv("NUM_WORKLOADS", "0"))
+definition = os.getenv("DEFINITION", "gdn_decode_qk4_v8_d128_k_last")
 
 
 @app.local_entrypoint()
@@ -127,7 +128,8 @@ def main():
     language = ALGO_LANGUAGES.get(algo)
     dps = algo not in ALGO_NO_DPS
     solution_path = pack_solution(
-        entry_point=entry_point, name=algo, language=language, dps=dps
+        definition=definition,
+        entry_point=entry_point, name=algo, language=language, dps=dps,
     )
 
     print("\nLoading solution...")

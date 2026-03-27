@@ -102,4 +102,10 @@ def parse_args():
         default=None,
         help="UUID prefix to filter a specific workload (e.g. 'a5714b69')",
     )
+    parser.add_argument(
+        "--definition",
+        type=str,
+        default="gdn_decode_qk4_v8_d128_k_last",
+        help="Definition name (default: gdn_decode_qk4_v8_d128_k_last)",
+    )
     return parser.parse_args()

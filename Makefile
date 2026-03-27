@@ -51,6 +51,9 @@ submit-prefill:
 	git push origin submit-prefill gdn-prefill -f
 	git checkout main
 
+prefill-bench-pt:
+	python -m scripts.run_local --algo=prefill-reference --definition=gdn_prefill_qk4_v8_d128_k_last -n $(N)
+
 bench-fla:
 	python -m scripts.run_local --algo=fla-recurrent -n $(N)
 
