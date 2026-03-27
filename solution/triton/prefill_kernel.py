@@ -2,8 +2,10 @@ import math
 import torch
 import torch.nn.functional as F
 from fla.ops.gated_delta_rule import chunk_gated_delta_rule
+import torch.cuda.nvtx
 
 
+@torch.cuda.nvtx.range("kernel_prefill_fla_chunk")
 @torch.no_grad()
 def kernel_prefill_fla_chunk(
     q, k, v, state, A_log, a, dt_bias, b, cu_seqlens, scale, output, new_state

@@ -248,6 +248,10 @@ fi-timing:
 prefill-fi-timing:
 	python -m scripts.bench_fi_timing --algo=prefill-reference,prefill-fla-chunk --definition=gdn_prefill_qk4_v8_d128_k_last
 
+nsys-prefill:
+	nsys profile -o profiles/nsys-prefill-fla --force-overwrite true \
+		python -m scripts.bench_fi_timing --algo=prefill-fla-chunk --definition=gdn_prefill_qk4_v8_d128_k_last --iters=10 --use-cupti=False
+
 fi-timing-modal:
 	ALGO=$(ALGO) modal run -m scripts.bench_fi_timing_modal
 
