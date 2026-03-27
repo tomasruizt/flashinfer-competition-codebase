@@ -5,7 +5,9 @@ from fla.ops.gated_delta_rule import chunk_gated_delta_rule
 
 
 @torch.no_grad()
-def kernel_prefill_fla_chunk(q, k, v, state, A_log, a, dt_bias, b, cu_seqlens, scale, output, new_state):
+def kernel_prefill_fla_chunk(
+    q, k, v, state, A_log, a, dt_bias, b, cu_seqlens, scale, output, new_state
+):
     """
     FLA chunkwise prefill wrapper for the competition interface (DPS).
 
@@ -115,7 +117,9 @@ def kernel_prefill_reference(q, k, v, state, A_log, a, dt_bias, b, cu_seqlens, s
             continue
 
         if state is not None:
-            state_HKV = state[seq_idx].clone().float().transpose(-1, -2)  # [H,V,K] -> [H,K,V]
+            state_HKV = (
+                state[seq_idx].clone().float().transpose(-1, -2)
+            )  # [H,V,K] -> [H,K,V]
         else:
             state_HKV = torch.zeros(
                 (num_heads, head_size, head_size), dtype=torch.float32, device=device
@@ -132,8 +136,12 @@ def kernel_prefill_reference(q, k, v, state, A_log, a, dt_bias, b, cu_seqlens, s
             old_state_HKV = g_H11 * state_HKV
             old_v_H1V = k_H1K.float() @ old_state_HKV.float()
             new_v_H1V = beta_H11 * v_H1V + (1 - beta_H11) * old_v_H1V
-            state_remove = torch.einsum('hkl,hlv->hkv', k_H1K.transpose(-1, -2), old_v_H1V)
-            state_update = torch.einsum('hkl,hlv->hkv', k_H1K.transpose(-1, -2), new_v_H1V)
+            state_remove = torch.einsum(
+                "hkl,hlv->hkv", k_H1K.transpose(-1, -2), old_v_H1V
+            )
+            state_update = torch.einsum(
+                "hkl,hlv->hkv", k_H1K.transpose(-1, -2), new_v_H1V
+            )
             state_HKV = old_state_HKV - state_remove + state_update
 
             o_H1V = scale * (q_H1K.float() @ state_HKV.float())
