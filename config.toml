@@ -1,8 +1,8 @@
 [solution]
-name = "<placeholder>"      # Solution name, injected at runtime based on algorithm
-definition = "<placeholder>"  # Injected at runtime based on --definition flag
-author = "lmu-css"                # Team/author name
+name = "prefill-fla-chunk"
+definition = "gdn_prefill_qk4_v8_d128_k_last"
+author = "lmu-css"
 
 [build]
-language = "triton"               # triton | cuda
-entry_point = "<placeholder>"     # Kernel function name, injected at runtime based on algorithm
+language = "triton"
+entry_point = "prefill_kernel.py::kernel_prefill_fla_chunk"
