@@ -1,5 +1,5 @@
 """
-Benchmark GDN decode kernels using FlashInfer's bench_gpu_time.
+Benchmark GDN kernels using FlashInfer's bench_gpu_time.
 
 Uses the same timing methodology as FlashInfer's own developers (PR #2498),
 giving an apples-to-apples comparison with their published numbers.
@@ -10,6 +10,7 @@ Usage:
     python -m scripts.bench_fi_timing --algo=fla-recurrent
     python -m scripts.bench_fi_timing --algo=fla-recurrent,cuda-v4
     python -m scripts.bench_fi_timing --algo=all
+    python -m scripts.bench_fi_timing --algo=prefill-fla-chunk --definition=gdn_prefill_qk4_v8_d128_k_last
 """
 
 import statistics
@@ -18,13 +19,12 @@ import pandas as pd
 from flashinfer.testing import bench_gpu_time
 
 from .profile_proton import load_workload_tensors
-from .shared import load_algo_functions, resolve_algo_names
+from .shared import DEFS, DefinitionName, load_algo_functions, resolve_algo_names
 
 
-def run_benchmark(algo_names: list[str]):
+def run_benchmark(algo_names: list[str], def_name: DefinitionName):
     """Run bench_gpu_time for the given algo names and print results."""
     algos = load_algo_functions()
-    tensors = load_workload_tensors()
 
     for name in algo_names:
         if name not in algos:
@@ -32,9 +32,10 @@ def run_benchmark(algo_names: list[str]):
 
     rows = []
     for name in algo_names:
+        tensors = load_workload_tensors(def_name)
         kernel_fn = algos[name]
         times_ms = bench_gpu_time(
-            fn=lambda kf=kernel_fn: kf(**tensors),
+            fn=lambda kf=kernel_fn, t=tensors: kf(**t),
             cold_l2_cache=True,
             enable_cupti=True,
         )
@@ -59,16 +60,21 @@ def main():
     import argparse
 
     parser = argparse.ArgumentParser(
-        description="Benchmark GDN decode kernels using FlashInfer bench_gpu_time"
+        description="Benchmark GDN kernels using FlashInfer bench_gpu_time"
     )
     parser.add_argument(
         "--algo",
         default="all",
         help="Algorithm(s) to benchmark. Comma-separated or 'all' (default: all)",
     )
+    parser.add_argument(
+        "--definition",
+        default=DEFS.DECODE,
+        help="Definition name (default: gdn_decode_qk4_v8_d128_k_last)",
+    )
     args = parser.parse_args()
 
-    run_benchmark(resolve_algo_names(args.algo))
+    run_benchmark(resolve_algo_names(args.algo), def_name=args.definition)
 
 
 if __name__ == "__main__":

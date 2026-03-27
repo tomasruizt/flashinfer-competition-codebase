@@ -14,7 +14,7 @@ import cuda.bench as bench
 import torch
 
 from .profile_proton import load_workload_tensors
-from .shared import load_algo_functions, resolve_algo_names
+from .shared import DEFS, load_algo_functions, resolve_algo_names
 
 
 def as_torch_stream(cs: bench.CudaStream) -> torch.cuda.ExternalStream:
@@ -29,7 +29,7 @@ def gdn_decode(state: bench.State):
     algo_name = state.get_string("Algo")
     kernel_fn = ALGOS[algo_name]
 
-    tensors = load_workload_tensors()
+    tensors = load_workload_tensors(DEFS.DECODE)
 
     # Total bytes read/written for reporting bandwidth
     h_state = tensors["state"]

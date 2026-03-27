@@ -54,7 +54,9 @@ def kernel_prefill_fla_chunk(
 
 
 @torch.no_grad()
-def kernel_prefill_reference(q, k, v, state, A_log, a, dt_bias, b, cu_seqlens, scale):
+def kernel_prefill_reference(
+    q, k, v, state, A_log, a, dt_bias, b, cu_seqlens, scale, **_kwargs
+):
     """
     Gated Delta Net prefill reference implementation (k-last layout).
 

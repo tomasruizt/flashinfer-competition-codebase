@@ -21,7 +21,7 @@ from flashinfer_bench import Benchmark, BenchmarkConfig, Solution, TraceSet
 
 from .modal_config import TRACE_SET_PATH, image, trace_volume
 from .pack_solution import pack_solution
-from .shared import ALGO_ENTRY_POINTS, ALGO_LANGUAGES, ALGO_NO_DPS
+from .shared import ALGO_ENTRY_POINTS, ALGO_LANGUAGES, ALGO_NO_DPS, DEFS
 
 app = modal.App("flashinfer-bench")
 
@@ -115,7 +115,7 @@ def print_results(results: dict):
 
 algo = os.getenv("ALGO", "fla-recurrent")
 num_workloads = int(os.getenv("NUM_WORKLOADS", "0"))
-definition = os.getenv("DEFINITION", "gdn_decode_qk4_v8_d128_k_last")
+definition = os.getenv("DEFINITION", DEFS.DECODE)
 
 
 @app.local_entrypoint()

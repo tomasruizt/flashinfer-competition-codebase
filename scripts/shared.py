@@ -1,6 +1,17 @@
 """Shared constants and utilities used across scripts."""
 
 from pathlib import Path
+from typing import Literal
+
+DefinitionName = Literal[
+    "gdn_decode_qk4_v8_d128_k_last",
+    "gdn_prefill_qk4_v8_d128_k_last",
+]
+
+
+class DEFS:
+    DECODE = "gdn_decode_qk4_v8_d128_k_last"
+    PREFILL = "gdn_prefill_qk4_v8_d128_k_last"
 
 
 PROJECT_ROOT = Path(__file__).parent.parent
@@ -110,7 +121,7 @@ def parse_args():
     parser.add_argument(
         "--definition",
         type=str,
-        default="gdn_decode_qk4_v8_d128_k_last",
+        default=DEFS.DECODE,
         help="Definition name (default: gdn_decode_qk4_v8_d128_k_last)",
     )
     parser.add_argument(

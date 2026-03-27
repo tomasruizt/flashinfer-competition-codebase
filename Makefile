@@ -52,10 +52,10 @@ submit-prefill:
 	git checkout main
 
 prefill-bench-fla:
-	python -m scripts.run_local --algo=prefill-fla-chunk --definition=gdn_prefill_qk4_v8_d128_k_last -n $(N) --iterations=10 --num-trials=1
+	python -m scripts.run_local --algo=prefill-fla-chunk --definition=gdn_prefill_qk4_v8_d128_k_last -n $(N) --iterations=20 --num-trials=1
 
 prefill-bench-pt:
-	python -m scripts.run_local --algo=prefill-reference --definition=gdn_prefill_qk4_v8_d128_k_last -n $(N) --iterations=10 --num-trials=1
+	python -m scripts.run_local --algo=prefill-reference --definition=gdn_prefill_qk4_v8_d128_k_last -n $(N) --iterations=20 --num-trials=1
 
 bench-fla:
 	python -m scripts.run_local --algo=fla-recurrent -n $(N)
@@ -244,6 +244,9 @@ nvbench-modal-all:
 
 fi-timing:
 	python -m scripts.bench_fi_timing --algo=$(ALGO)
+
+prefill-fi-timing:
+	python -m scripts.bench_fi_timing --algo=prefill-reference,prefill-fla-chunk --definition=gdn_prefill_qk4_v8_d128_k_last
 
 fi-timing-modal:
 	ALGO=$(ALGO) modal run -m scripts.bench_fi_timing_modal

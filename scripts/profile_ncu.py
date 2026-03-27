@@ -10,7 +10,7 @@ See `make ncu-fla` for the full command.
 import torch
 
 from .profile_proton import load_workload_tensors
-from .shared import load_algo_functions
+from .shared import DEFS, load_algo_functions
 
 
 def main():
@@ -27,7 +27,7 @@ def main():
     args = parser.parse_args()
 
     kernel_fn = algo_fns[args.algo]
-    tensors = load_workload_tensors()
+    tensors = load_workload_tensors(DEFS.DECODE)
 
     print("Warming up...")
     for _ in range(3):

@@ -21,9 +21,7 @@ import triton.profiler as proton
 from flashinfer_bench.bench.utils import gen_inputs, load_safetensors
 from flashinfer_bench.data import TraceSet
 
-from .shared import PROJECT_ROOT
-
-DEF_NAME = "gdn_decode_qk4_v8_d128_k_last"
+from .shared import DEFS, PROJECT_ROOT, DefinitionName
 
 
 def main():
@@ -58,7 +56,7 @@ def main():
 
     from solution.triton.kernel import kernel_fla_recurrent
 
-    tensors = load_workload_tensors()
+    tensors = load_workload_tensors(DEFS.DECODE)
 
     print("Warming up...")
     for _ in range(3):
@@ -83,10 +81,10 @@ def main():
     print("Done.")
 
 
-def load_workload_tensors(device="cuda", trace_set_path=None):
+def load_workload_tensors(def_name: DefinitionName, device="cuda", trace_set_path=None):
     trace_set = TraceSet.from_path(trace_set_path)
-    definition = trace_set.definitions[DEF_NAME]
-    workload = trace_set.workloads[DEF_NAME][0].workload
+    definition = trace_set.definitions[def_name]
+    workload = trace_set.workloads[def_name][0].workload
 
     safe_tensors = load_safetensors(definition, workload, trace_set.root)
     input_list = gen_inputs(
@@ -95,13 +93,31 @@ def load_workload_tensors(device="cuda", trace_set_path=None):
     input_names = list(definition.inputs.keys())
     inputs = dict(zip(input_names, input_list))
 
-    # Add DPS output buffers
+    if "decode" in def_name:
+        _add_dps_decode(inputs, device)
+    else:
+        _add_dps_prefill(inputs, device)
+
+    return inputs
+
+
+def _add_dps_decode(inputs, device):
     B, T, _, K = inputs["q"].shape
     HV, V = inputs["v"].shape[2], inputs["v"].shape[3]
     inputs["output"] = torch.empty(B, T, HV, V, dtype=torch.bfloat16, device=device)
     inputs["new_state"] = torch.empty(B, HV, V, K, dtype=torch.float32, device=device)
 
-    return inputs
+
+def _add_dps_prefill(inputs, device):
+    total_seq_len, HV, V = inputs["v"].shape
+    K = inputs["q"].shape[2]
+    num_seqs = inputs["cu_seqlens"].shape[0] - 1
+    inputs["output"] = torch.empty(
+        total_seq_len, HV, V, dtype=torch.bfloat16, device=device
+    )
+    inputs["new_state"] = torch.empty(
+        num_seqs, HV, V, K, dtype=torch.float32, device=device
+    )
 
 
 if __name__ == "__main__":
