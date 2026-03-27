@@ -13,7 +13,7 @@ ALGO_ENTRY_POINTS = {
     "fi-baseline": "kernel.py::kernel_fi_baseline",
     "cuda-v1": "kernel.cu::kernel_cuda",
     "cuda-v4": "kernel.cu::kernel_cuda_v4",
-    "prefill-reference": "kernel.py::kernel_prefill_reference",
+    "prefill-reference": "prefill_kernel.py::kernel_prefill_reference",
 }
 
 ALGO_LANGUAGES = {
@@ -54,10 +54,10 @@ def load_algo_functions() -> dict:
         kernel_fi_baseline,
         kernel_fla_recurrent,
         kernel_fla_tma,
-        kernel_prefill_reference,
         kernel_pt_compiled,
         kernel_pt_reference,
     )
+    from solution.triton.prefill_kernel import kernel_prefill_reference
 
     return {
         "pt-reference": kernel_pt_reference,
