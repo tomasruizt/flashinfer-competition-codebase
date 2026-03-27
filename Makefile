@@ -3,7 +3,7 @@
 #   NUM_WORKLOADS=3 make modal-fla
 # TRITON_PRINT_AUTOTUNING is always on (logs go to logs/fib-bench/)
 
-.PHONY: bench-fla bench-pt bench-pt-compiled bench-tma bench-fi bench-cuda bench-cuda-v4 modal-fla modal-pt modal-pt-compiled modal-tma modal-fi modal-cuda modal-get-logs modal-clear-logs bench-fla-all bench-tma-all clean-empty-logs proton-fla proton-example clean-triton-cache document-speedups ncu-fla ncu-fi ncu-cuda ncu-cuda-v4 ncu-export-fla ncu-export-fi ncu-export-cuda ncu-export-cuda-v4 nvbench nvbench-fla nvbench-fi nvbench-cuda nvbench-cuda-v4 nvbench-all nvbench-modal-fla nvbench-modal-fi nvbench-modal-cuda-all nvbench-modal-all fi-timing fi-timing-modal
+.PHONY: bench-fla bench-pt bench-pt-compiled bench-tma bench-fi bench-cuda bench-cuda-v4 modal-fla modal-pt modal-pt-compiled modal-tma modal-fi modal-cuda modal-get-logs modal-clear-logs bench-fla-all bench-tma-all clean-empty-logs proton-fla proton-example clean-triton-cache document-speedups ncu-fla ncu-fi ncu-cuda ncu-cuda-v4 ncu-export-fla ncu-export-fi ncu-export-cuda ncu-export-cuda-v4 nvbench nvbench-fla nvbench-fi nvbench-cuda nvbench-cuda-v4 nvbench-all nvbench-modal-fla nvbench-modal-fi nvbench-modal-cuda-all nvbench-modal-all fi-timing fi-timing-modal submit-decode submit-prefill
 
 export TRITON_PRINT_AUTOTUNING=1
 N ?= 0
@@ -36,6 +36,20 @@ pack-fla-to-dataset:
 
 pack-solution:
 	python -m scripts.pack_solution
+
+submit-decode:
+	git checkout submit-decode
+	git rebase main
+	git tag -f gdn-decode
+	git push origin submit-decode gdn-decode -f
+	git checkout main
+
+submit-prefill:
+	git checkout submit-prefill
+	git rebase main
+	git tag -f gdn-prefill
+	git push origin submit-prefill gdn-prefill -f
+	git checkout main
 
 bench-fla:
 	python -m scripts.run_local --algo=fla-recurrent -n $(N)

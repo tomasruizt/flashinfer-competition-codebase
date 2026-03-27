@@ -13,6 +13,7 @@ ALGO_ENTRY_POINTS = {
     "fi-baseline": "kernel.py::kernel_fi_baseline",
     "cuda-v1": "kernel.cu::kernel_cuda",
     "cuda-v4": "kernel.cu::kernel_cuda_v4",
+    "prefill-reference": "kernel.py::kernel_prefill_reference",
 }
 
 ALGO_LANGUAGES = {
@@ -20,7 +21,7 @@ ALGO_LANGUAGES = {
     "cuda-v4": "cuda",
 }
 
-ALGO_NO_DPS = {"pt-reference", "pt-compiled"}
+ALGO_NO_DPS = {"pt-reference", "pt-compiled", "prefill-reference"}
 
 CUDA_ALGOS = list(ALGO_LANGUAGES.keys())
 NON_CUDA_ALGOS = [a for a in ALGO_ENTRY_POINTS if a not in ALGO_LANGUAGES]
@@ -53,6 +54,7 @@ def load_algo_functions() -> dict:
         kernel_fi_baseline,
         kernel_fla_recurrent,
         kernel_fla_tma,
+        kernel_prefill_reference,
         kernel_pt_compiled,
         kernel_pt_reference,
     )
@@ -65,6 +67,7 @@ def load_algo_functions() -> dict:
         "fla-tma": kernel_fla_tma,
         "cuda-v1": kernel_cuda,
         "cuda-v4": kernel_cuda_v4,
+        "prefill-reference": kernel_prefill_reference,
     }
 
 
