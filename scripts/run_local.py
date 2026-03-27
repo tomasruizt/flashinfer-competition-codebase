@@ -13,7 +13,6 @@ from .shared import (
     ALGO_ENTRY_POINTS,
     ALGO_LANGUAGES,
     ALGO_NO_DPS,
-    PROJECT_ROOT,
     parse_args,
 )
 
@@ -34,14 +33,15 @@ def run_benchmark(
     config: BenchmarkConfig = None,
     num_workloads: int = 0,
     workload_id: str = None,
+    iterations: int = 100,
+    num_trials: int = 5,
 ) -> dict:
     """Run benchmark locally and return results."""
     if config is None:
         config = BenchmarkConfig(
             warmup_runs=3,
-            iterations=100,
-            num_trials=5,
-            log_dir=str(PROJECT_ROOT / "logs" / "fib-bench"),
+            iterations=iterations,
+            num_trials=num_trials,
         )
 
     trace_set_path = get_trace_set_path()
@@ -142,7 +142,8 @@ def main():
 
     print("\nRunning benchmark...")
     results = run_benchmark(
-        solution, num_workloads=args.num_workloads, workload_id=args.workload_id
+        solution, num_workloads=args.num_workloads, workload_id=args.workload_id,
+        iterations=args.iterations, num_trials=args.num_trials,
     )
 
     if not results:

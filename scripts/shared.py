@@ -14,6 +14,7 @@ ALGO_ENTRY_POINTS = {
     "cuda-v1": "kernel.cu::kernel_cuda",
     "cuda-v4": "kernel.cu::kernel_cuda_v4",
     "prefill-reference": "prefill_kernel.py::kernel_prefill_reference",
+    "prefill-fla-chunk": "prefill_kernel.py::kernel_prefill_fla_chunk",
 }
 
 ALGO_LANGUAGES = {
@@ -57,7 +58,7 @@ def load_algo_functions() -> dict:
         kernel_pt_compiled,
         kernel_pt_reference,
     )
-    from solution.triton.prefill_kernel import kernel_prefill_reference
+    from solution.triton.prefill_kernel import kernel_prefill_fla_chunk, kernel_prefill_reference
 
     return {
         "pt-reference": kernel_pt_reference,
@@ -68,6 +69,7 @@ def load_algo_functions() -> dict:
         "cuda-v1": kernel_cuda,
         "cuda-v4": kernel_cuda_v4,
         "prefill-reference": kernel_prefill_reference,
+        "prefill-fla-chunk": kernel_prefill_fla_chunk,
     }
 
 
@@ -107,5 +109,17 @@ def parse_args():
         type=str,
         default="gdn_decode_qk4_v8_d128_k_last",
         help="Definition name (default: gdn_decode_qk4_v8_d128_k_last)",
+    )
+    parser.add_argument(
+        "--iterations",
+        type=int,
+        default=100,
+        help="Number of timing iterations (default: 100)",
+    )
+    parser.add_argument(
+        "--num-trials",
+        type=int,
+        default=5,
+        help="Number of trials (default: 5)",
     )
     return parser.parse_args()

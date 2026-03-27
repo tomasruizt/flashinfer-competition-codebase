@@ -1,6 +1,54 @@
 import math
 import torch
 import torch.nn.functional as F
+from fla.ops.gated_delta_rule import chunk_gated_delta_rule
+
+
+@torch.no_grad()
+def kernel_prefill_fla_chunk(q, k, v, state, A_log, a, dt_bias, b, cu_seqlens, scale, output, new_state):
+    """
+    FLA chunkwise prefill wrapper for the competition interface (DPS).
+
+    Adapts between competition tensors and FLA's chunk_gated_delta_rule:
+    - Precomputes gates: g (log-space decay), beta (sigmoid'd update gate)
+    - Reshapes: [total_seq_len, H, D] -> [1, total_seq_len, H, D] (FLA expects B=1 for varlen)
+    - Transposes state: [N, H, V, K] (k-last) <-> [N, H, K, V] (FLA)
+    """
+    # Precompute gates from raw parameters
+    x = a.float() + dt_bias.float()
+    g = -torch.exp(A_log.float()) * F.softplus(x)  # log-space decay [total_seq_len, HV]
+    beta = torch.sigmoid(b.float())  # update gate [total_seq_len, HV]
+
+    # Add batch dim: [total_seq_len, ...] -> [1, total_seq_len, ...]
+    # GVA: repeat-interleave q/k from 4 heads to 8 so FLA produces 8-head state
+    num_v_heads = v.shape[1]
+    num_q_heads = q.shape[1]
+    q_4d = q.repeat_interleave(num_v_heads // num_q_heads, dim=1).unsqueeze(0)
+    k_4d = k.repeat_interleave(num_v_heads // num_q_heads, dim=1).unsqueeze(0)
+    v_4d = v.unsqueeze(0)
+    g = g.unsqueeze(0)
+    beta = beta.unsqueeze(0)
+
+    # Transpose state: [N, H, V, K] -> [N, H, K, V]
+    initial_state = state.transpose(-1, -2) if state is not None else None
+
+    o, ht = chunk_gated_delta_rule(
+        q=q_4d,
+        k=k_4d,
+        v=v_4d,
+        g=g,
+        beta=beta,
+        scale=scale,
+        initial_state=initial_state,
+        output_final_state=True,
+        cu_seqlens=cu_seqlens,
+        use_qk_l2norm_in_kernel=False,
+    )
+
+    # Remove batch dim and write to DPS outputs
+    output.copy_(o.squeeze(0))
+    # Transpose state back: [N, H, K, V] -> [N, H, V, K]
+    new_state.copy_(ht.transpose(-1, -2))
 
 
 @torch.no_grad()
