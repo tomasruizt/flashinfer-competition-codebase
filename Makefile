@@ -31,8 +31,20 @@ official-bench-gdn-decode-fla-recurrent: pack-fla-to-dataset
 		--save-results --use-isolated-runner --log-level INFO --resume --timeout 300
 
 pack-fla-to-dataset:
-	python -m scripts.pack_solution
+	python -m scripts.pack_solution --algo=fla-recurrent --definition=gdn_decode_qk4_v8_d128_k_last
 	cp solution.json ../mlsys26-contest/solutions/baseline/gdn/gdn_decode_qk4_v8_d128_k_last/fla-recurrent.json
+
+official-bench-gdn-prefill-fla-chunk: pack-prefill-fla-to-dataset
+	flashinfer-bench run \
+		--local=../mlsys26-contest \
+		--definitions gdn_prefill_qk4_v8_d128_k_last \
+		--solutions=prefill-fla-chunk \
+		--save-results --use-isolated-runner --log-level INFO --resume --timeout 300 \
+		--warmup-runs 1 --iterations 5 --num-trials 3
+
+pack-prefill-fla-to-dataset:
+	python -m scripts.pack_solution --algo=prefill-fla-chunk --definition=gdn_prefill_qk4_v8_d128_k_last
+	cp solution.json ../mlsys26-contest/solutions/baseline/gdn/gdn_prefill_qk4_v8_d128_k_last/prefill-fla-chunk.json
 
 pack-solution:
 	python -m scripts.pack_solution

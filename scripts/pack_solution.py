@@ -109,12 +109,12 @@ def main():
         language = ALGO_LANGUAGES.get(args.algo)
         dps = args.algo not in ALGO_NO_DPS
         pack_solution(
-            args.output,
+            definition=args.definition,
+            output_path=args.output,
             entry_point=entry_point,
             name=args.algo,
             language=language,
             dps=dps,
-            definition=args.definition,
         )
     except Exception as e:
         print(f"Error: {e}", file=sys.stderr)
