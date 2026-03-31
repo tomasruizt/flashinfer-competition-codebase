@@ -221,13 +221,27 @@ python -m scripts.run_local --algo=pt-reference      # compiled PyTorch referenc
 ### Competition Evaluation Results (Third eval, March 27, 2026)
 - **Decode**: 0.96x vs FlashInfer baseline, rank #10, 54/54 passed
 - **Prefill**: COMPILE_ERROR (missing `fla` package on eval server)
-- Latency range: 3-18 µs across 54 workloads (B=1..64)
 - Competition baseline `flashinfer_wrapper_9b7f1e` calls the same `gated_delta_rule_decode_pretranspose` as our `fi-baseline` algo (functionally identical kernel)
-- At B=1, fla-recurrent is ~1.31x faster than fi-baseline (CUPTI: 2.56 vs 3.36 µs)
-- The 0.96x average means we lose on B>1 workloads (44 of 54 workloads have B=4..64, never benchmarked locally)
 - Eval uses `flashinfer-bench` with `--use-isolated-runner --timeout=300`, GPU clocks locked (`nvidia-smi -ac 3996,1965`)
 - Docker image: `flashinfer/flashinfer-ci-cu132:latest`, includes `cupti-python`
 - Full eval details: `EVALUATION.md`
+
+### fla-recurrent vs fi-baseline by batch size (CUPTI, B200)
+| Batch size | fla-recurrent | fi-baseline | Ratio (fla/fi) | Winner |
+| ---------- | ------------- | ----------- | -------------- | ------ |
+| B=1        | 2.59 µs       | 3.36 µs     | 0.77           | fla 1.30x faster |
+| B=4        | 3.07 µs       | 3.65 µs     | 0.84           | fla 1.19x faster |
+| B=8        | 4.10 µs       | 4.22 µs     | 0.97           | ~tied |
+| B=16       | 6.11 µs       | 5.31 µs     | 1.15           | fi 1.15x faster |
+| B=32       | 10.30 µs      | 7.71 µs     | 1.34           | fi 1.34x faster |
+| B=48       | 14.11 µs      | 10.50 µs    | 1.35           | fi 1.35x faster |
+| B=64       | 18.18 µs      | 12.74 µs    | 1.43           | fi 1.43x faster |
+
+- Crossover at B=8: fla-recurrent wins below, fi-baseline wins above
+- FLA kernel latency scales ~linearly with B (2.6 us per batch item at B=64)
+- FI CuTe-DSL kernel scales sub-linearly (amortizes overhead better)
+- The 0.96x competition average is explained by 44/54 workloads having B>=4
+- Full per-workload data: `findings/fi-timing-by-workload-b200.csv`
 
 ## Modal Deployment Notes
 - The Modal image must install ALL Python packages that `kernel.py` imports at the top level
