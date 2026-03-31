@@ -243,6 +243,27 @@ python -m scripts.run_local --algo=pt-reference      # compiled PyTorch referenc
 - The 0.96x competition average is explained by 44/54 workloads having B>=4
 - Full per-workload data: `findings/fi-timing-by-workload-b200.csv`
 
+### NCU comparison at B=64 (B200)
+| Metric | fla-recurrent | fi-baseline |
+| ------ | ------------- | ----------- |
+| Duration | 19.33 µs | 12.54 µs |
+| Grid | 8192 blocks x 256 threads | 4096 blocks x 128 threads |
+| Waves/SM | 6.92 | 1.73 |
+| Compute throughput | 61.25% | 41.35% |
+| Memory throughput | 40.19% | 51.49% |
+| L2 hit rate | 2.58% | 48.83% |
+| IPC active | 3.08 | 2.48 |
+| Executed instructions | 13.4M | 6.0M |
+| Achieved occupancy | 86.7% | 82.6% |
+
+- fla-recurrent at B=64 is compute-bound (ALU 46%), unlike B=1 which is latency-bound
+- **Root cause**: fla executes 2.2x more instructions than fi-baseline for the same work
+- fla's BV=8 creates 16 V-tiles per head; each block redundantly loads q, k, and gate scalars
+- fi-baseline uses shared memory (9 KB/block) to stage data, achieving 49% L2 hit rate vs fla's 3%
+- fi-baseline's main weakness: tail effect (1.73 waves, 50% estimated speedup from NCU)
+- **Optimization path**: increase BV at large B to reduce grid size and redundant loads. BV=8 is optimal for B=1 (max parallelism) but wasteful at B=64 (already 6.9 waves). Batch-adaptive BV dispatch is a one-line change in the wrapper.
+- NCU logs: `logs/ncu-decode-modal-{fla-recurrent,fi-baseline}-widx53.log`
+
 ## Modal Deployment Notes
 - The Modal image must install ALL Python packages that `kernel.py` imports at the top level
 - `flash-linear-attention` (the `fla` package) is NOT a dependency of `flashinfer-bench` — must be explicitly added to the Modal image

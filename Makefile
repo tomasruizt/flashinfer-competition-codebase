@@ -269,6 +269,10 @@ nsys-prefill:
 fi-timing-modal:
 	ALGO=$(ALGO) WORKLOAD_IDX=$(WORKLOAD_IDX) modal run -m scripts.bench_fi_timing_modal
 
+ncu-decode-modal:
+	ALGO=$(ALGO) WORKLOAD_IDX=$(WORKLOAD_IDX) NCU_MODE=$(NCU_MODE) \
+		modal run -m scripts.profile_ncu_modal 2>&1 | tee logs/ncu-decode-modal-$(ALGO)-widx$(WORKLOAD_IDX).log
+
 proton-example:
 	cd timeline && TRITON_ALWAYS_COMPILE=1 TRITON_KERNEL_DUMP=1 TRITON_DUMP_DIR=ttgir_dump python example_dsl.py
 

@@ -24,10 +24,11 @@ def main():
         default="fla-recurrent",
         choices=list(algo_fns),
     )
+    parser.add_argument("--workload-idx", type=int, default=0)
     args = parser.parse_args()
 
     kernel_fn = algo_fns[args.algo]
-    tensors = load_workload_tensors(DEFS.DECODE)
+    tensors = load_workload_tensors(DEFS.DECODE, workload_idx=args.workload_idx)
 
     print("Warming up...")
     for _ in range(3):
