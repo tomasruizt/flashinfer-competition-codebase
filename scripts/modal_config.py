@@ -6,13 +6,12 @@ trace_volume = modal.Volume.from_name("flashinfer-trace", create_if_missing=True
 TRACE_SET_PATH = "/data"
 
 base_image = (
-    modal.Image.from_registry("nvidia/cuda:12.8.1-devel-ubuntu22.04", add_python="3.12")
-    .apt_install("git")
+    # image name taken from EVALUATION.md
+    modal.Image.from_registry("flashinfer/flashinfer-ci-cu132:latest")
     .uv_pip_install(
         "flashinfer-bench @ git+https://github.com/flashinfer-ai/flashinfer-bench.git",
-        "torch",
-        "triton",
         "flashinfer-python",
+        "flash-linear-attention",
         "pandas",
         "cupti-python",
     )
