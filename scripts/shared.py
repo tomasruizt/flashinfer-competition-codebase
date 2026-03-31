@@ -26,6 +26,7 @@ ALGO_ENTRY_POINTS = {
     "cuda-v4": "kernel.cu::kernel_cuda_v4",
     "prefill-reference": "prefill_kernel.py::kernel_prefill_reference",
     "prefill-fla-chunk": "prefill_kernel.py::kernel_prefill_fla_chunk",
+    "prefill-fi-baseline": "prefill_kernel.py::kernel_prefill_fi_baseline",
 }
 
 ALGO_LANGUAGES = {
@@ -70,6 +71,7 @@ def load_algo_functions() -> dict:
         kernel_pt_reference,
     )
     from solution.triton.prefill_kernel import (
+        kernel_prefill_fi_baseline,
         kernel_prefill_fla_chunk,
         kernel_prefill_reference,
     )
@@ -84,6 +86,7 @@ def load_algo_functions() -> dict:
         "cuda-v4": kernel_cuda_v4,
         "prefill-reference": kernel_prefill_reference,
         "prefill-fla-chunk": kernel_prefill_fla_chunk,
+        "prefill-fi-baseline": kernel_prefill_fi_baseline,
     }
 
 

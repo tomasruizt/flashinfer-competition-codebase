@@ -275,6 +275,9 @@ nsys-prefill:
 fi-timing-modal:
 	ALGO=$(ALGO) WORKLOAD_IDX=$(WORKLOAD_IDX) modal run -m scripts.bench_fi_timing_modal
 
+prefill-fi-timing-modal:
+	ALGO=prefill-fla-chunk,prefill-fi-baseline DEFINITION=gdn_prefill_qk4_v8_d128_k_last modal run -m scripts.bench_fi_timing_modal
+
 ncu-decode-modal:
 	ALGO=$(ALGO) WORKLOAD_IDX=$(WORKLOAD_IDX) NCU_MODE=$(NCU_MODE) \
 		modal run -m scripts.profile_ncu_modal 2>&1 | tee logs/ncu-decode-modal-$(ALGO)-widx$(WORKLOAD_IDX).log

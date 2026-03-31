@@ -55,6 +55,34 @@ def kernel_prefill_fla_chunk(
 
 
 @torch.no_grad()
+def kernel_prefill_fi_baseline(
+    q, k, v, state, A_log, a, dt_bias, b, cu_seqlens, scale, output, new_state
+):
+    """FlashInfer CuTe-DSL prefill baseline (SM90+ only, use on Modal B200)."""
+    from flashinfer.gdn_prefill import chunk_gated_delta_rule as fi_chunk_gdn
+
+    # Compute gates from raw parameters
+    x = a.float() + dt_bias.float()
+    g = -torch.exp(A_log.float()) * F.softplus(x)
+    beta = torch.sigmoid(b.float())
+
+    # FlashInfer Blackwell kernel expects 4D: [B, total_seq_len, H, D]
+    o, ht = fi_chunk_gdn(
+        q=q.unsqueeze(0),
+        k=k.unsqueeze(0),
+        v=v.unsqueeze(0),
+        g=g,
+        beta=beta,
+        scale=scale,
+        initial_state=state,
+        output_final_state=True,
+        cu_seqlens=cu_seqlens,
+    )
+    output.copy_(o.squeeze(0))
+    new_state.copy_(ht)
+
+
+@torch.no_grad()
 def kernel_prefill_reference(
     q, k, v, state, A_log, a, dt_bias, b, cu_seqlens, scale, **_kwargs
 ):
