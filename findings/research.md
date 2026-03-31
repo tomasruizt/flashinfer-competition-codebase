@@ -1072,9 +1072,33 @@ Replaced the Python gate math (~8 PyTorch elementwise launches) + separate cumsu
 
 Result: 1742 -> 1201 us median (31% faster). The savings exceeded the ~100 us estimated from just the gate kernels; the extra improvement comes from eliminating `unsqueeze(0)` calls and reducing Python interpreter overhead between ops.
 
+### Prefill B200 CUPTI results (workload 0)
+
+| Algo | CUPTI median (us) |
+|------|---:|
+| prefill-fi-baseline | 185 |
+| prefill-fla-chunk | 1536 |
+
+**8.3x slower than FlashInfer baseline** on B200. FlashInfer's Blackwell kernel is a single fused CuTe-DSL kernel; our FLA code launches 6 Triton sub-kernels + ~30 PyTorch elementwise kernels per forward pass, and the CPU launch overhead dominates.
+
 ### Remaining optimization opportunities
 
-1. **Cache `prepare_chunk_indices`**: Called ~5 times per forward pass with identical `(cu_seqlens, chunk_size=64)` args. Each call launches ~4 elementwise kernels with ~15 us gap each. Caching would save ~4 * (4 * 16 us) = ~256 us (~15% of current latency).
-2. **CUDA Graphs**: Would eliminate virtually all ~1100 us of remaining launch overhead by replaying all kernel launches as a single graph. Requires static shapes (or padding to fixed sizes).
-3. **Kernel fusion**: Merge some of the 6 Triton sub-kernels to reduce launch count. The `chunk_local_cumsum` (1.6 us) could potentially be merged into `chunk_scaled_dot_kkt_fwd`.
-4. **For larger workloads** (T=8192+), kernel compute will dominate more, but launch overhead still scales with num_chunks * num_heads.
+**1. Cache `prepare_chunk_indices` (prerequisite, ~260 us savings)**
+
+Called ~5 times per forward pass with identical `(cu_seqlens, chunk_size=64)` args. Each call does `.tolist()` (CPU sync) + launches ~4 elementwise kernels. Compute once at the top of `chunk_gated_delta_rule_fwd`, pass the cached result to all sub-functions via a `chunk_indices=ci` argument.
+
+**2. CUDA graph capture (~1100 us savings)**
+
+After caching `prepare_chunk_indices`, all remaining ops are pure GPU and graph-capturable. Integration:
+
+- Pre-compute `prepare_chunk_indices` outside the graph (uses `.tolist()` CPU sync)
+- Warmup runs to settle `@triton.autotune` selections before capture
+- Capture with `torch.cuda.CUDAGraph()`: records all ~30 remaining kernel launches
+- On replay: copy inputs into static buffers, replay graph, copy outputs out
+- One graph per unique `(total_seq_len, num_seqs)` shape; 100 workloads = up to 100 cached graphs
+
+Challenges: `repeat_interleave` / `unsqueeze` allocate new tensors inside capture (the graph must own those allocations). Each autotuned Triton kernel must be warmed up before capture so the correct config is selected.
+
+**3. Kernel fusion** (longer-term)
+
+Merge some of the 6 Triton sub-kernels to reduce launch count. For larger workloads (T=8192+), kernel compute will dominate more, but launch overhead still scales with num_chunks * num_heads.
