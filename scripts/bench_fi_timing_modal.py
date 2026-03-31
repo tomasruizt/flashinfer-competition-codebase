@@ -23,6 +23,7 @@ app = modal.App("fi-timing-gdn")
 
 algo = os.getenv("ALGO", "all")
 definition = os.getenv("DEFINITION", DEFS.DECODE)
+workload_idx = int(os.getenv("WORKLOAD_IDX", "0"))
 
 
 @app.function(
@@ -32,16 +33,18 @@ definition = os.getenv("DEFINITION", DEFS.DECODE)
     volumes={TRACE_SET_PATH: trace_volume},
     retries=2,
 )
-def run_fi_timing(algo_names: list[str], def_name: DefinitionName):
+def run_fi_timing(
+    algo_names: list[str], def_name: DefinitionName, workload_idx: int = 0
+):
     sys.path.insert(0, "/root")
 
     from scripts.bench_fi_timing import run_benchmark
 
-    run_benchmark(algo_names, def_name)
+    run_benchmark(algo_names, def_name, workload_idx=workload_idx)
 
 
 @app.local_entrypoint()
 def main():
     algo_names = resolve_algo_names(algo)
     print(f"Running FlashInfer bench_gpu_time on Modal B200: {', '.join(algo_names)}")
-    run_fi_timing.remote(algo_names, definition)
+    run_fi_timing.remote(algo_names, definition, workload_idx)

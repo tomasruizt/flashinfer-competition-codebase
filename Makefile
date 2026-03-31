@@ -267,7 +267,7 @@ nsys-prefill:
 		python -m scripts.bench_fi_timing --algo=prefill-fla-chunk --definition=gdn_prefill_qk4_v8_d128_k_last --iters=10 --use-cupti=False
 
 fi-timing-modal:
-	ALGO=$(ALGO) modal run -m scripts.bench_fi_timing_modal
+	ALGO=$(ALGO) WORKLOAD_IDX=$(WORKLOAD_IDX) modal run -m scripts.bench_fi_timing_modal
 
 proton-example:
 	cd timeline && TRITON_ALWAYS_COMPILE=1 TRITON_KERNEL_DUMP=1 TRITON_DUMP_DIR=ttgir_dump python example_dsl.py
