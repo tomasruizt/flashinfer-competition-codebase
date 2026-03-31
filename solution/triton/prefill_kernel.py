@@ -1,8 +1,9 @@
 import math
+
 import torch
 import torch.nn.functional as F
-from fla.ops.gated_delta_rule import chunk_gated_delta_rule
-import torch.cuda.nvtx
+
+from .fla_prefill_code import chunk_gated_delta_rule
 
 
 @torch.cuda.nvtx.range("kernel_prefill_fla_chunk")

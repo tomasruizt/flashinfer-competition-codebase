@@ -136,7 +136,8 @@ Each kernel is a separate definition, needs a separate `config.toml` definition 
 - Shapes: `q/k: [B, 1, 4, 128]` bf16, `v: [B, 1, 8, 128]` bf16, `state: [B, 8, 128, 128]` f32
 - Scalar inputs: `A_log: [8]` f32, `dt_bias: [8]` f32, `a: [B, 1, 8]` bf16, `b: [B, 1, 8]` bf16, `scale: f32`
 - Outputs (DPS): `output [B, 1, 8, 128]` bf16, `new_state [B, 8, 128, 128]` f32
-- All 20 workloads use batch_size=1
+- 54 workloads (updated March 25, 2026, commit 666da9c in mlsys26-contest)
+- Batch sizes: 1×10, 4×8, 8×7, 16×7, 32×7, 48×7, 64×8 (previously all 20 were B=1)
 - Memory-bound regime
 
 ### 2. Prefill: `gdn_prefill_qk4_v8_d128_k_last`
@@ -144,6 +145,7 @@ Each kernel is a separate definition, needs a separate `config.toml` definition 
 - Shapes: `q/k: [total_seq_len, 4, 128]`, `v: [total_seq_len, 8, 128]`, `state: [num_seqs, 8, 128, 128]`
 - Inputs: q, k, v, state, A_log, a, dt_bias, b, cu_seqlens, scale
 - Outputs (DPS): `output [total_seq_len, 8, 128]` bf16, `new_state [num_seqs, 8, 128, 128]` f32
+- 100 workloads
 - Compute-bound regime (chunkwise parallelism, WY factorization)
 
 ## Benchmark Methodology
@@ -154,7 +156,7 @@ Each kernel is a separate definition, needs a separate `config.toml` definition 
 - Timing via `torch.cuda.Event(enable_timing=True)` with proper synchronization
 - Reported latency = mean across iterations, speedup = ref_latency / sol_latency
 - Correctness: atol=1e-2, rtol=1e-2
-- 20 workloads per definition, all with batch_size=1 for decode
+- 54 decode workloads (B=1..64), 100 prefill workloads
 
 ## Baseline Performance (local GPU, PyTorch reference)
 - Decode: ~1.4ms, 0.93-0.99x vs FlashInfer baseline (reference is slightly slower)
@@ -202,15 +204,30 @@ python -m scripts.run_local --algo=pt-reference      # compiled PyTorch referenc
 | fi-baseline             | ~4.8 µs  | ~250x                |
 | fla-tma                 | ~7.5 µs  | ~161x                |
 
-### Performance (B200 via Modal)
-| Algo          | FI-bench  | NVBench  | Speedup vs reference |
-| ------------- | --------- | -------- | -------------------- |
-| fla-recurrent | ~0.037 ms | 7.1 µs   | ~32x                 |
-| cuda-v1       | ~0.012 ms | 7.6 µs   | ~99x                 |
-| fi-baseline   | ~0.017 ms | 8.3 µs   | ~46.5x               |
-| fla-tma       | ~0.041 ms | 14.0 µs  | ~31x                 |
+### Performance (B200 via Modal, old 20 workloads, all B=1)
+| Algo          | CUPTI    | NVBench  | FI-bench  | Speedup vs reference |
+| ------------- | -------- | -------- | --------- | -------------------- |
+| fla-recurrent | 2.56 µs  | 6.6 µs   | ~0.037 ms | ~32x                 |
+| cuda-v4       | 2.62 µs  | 6.6 µs   | ~0.012 ms | ~99x                 |
+| cuda-v1       | 3.04 µs  | 7.8 µs   | ~0.012 ms | ~99x                 |
+| fi-baseline   | 3.36 µs  | 8.3 µs   | ~0.017 ms | ~46.5x               |
+| fla-tma       | 12.70 µs | 12.6 µs  | ~0.041 ms | ~31x                 |
 
-NVBench confirms the kernel is latency-bound on B200: <2% of 7.7 TB/s bandwidth utilized. See `findings/research.md` "NVBench on B200".
+- NVBench uses CUDA events (not CUPTI). Three timing tiers: CUPTI < NVBench/CUDA events < FI-bench
+- NVBench confirms the kernel is latency-bound on B200: <2% of 7.7 TB/s bandwidth utilized
+- CUPTI source: `final-nums/fi-timing-modal/all.txt`, NVBench source: `final-nums/nvbench-modal/all.txt`
+- See `findings/research.md` "NVBench on B200"
+
+### Competition Evaluation Results (Third eval, March 27, 2026)
+- **Decode**: 0.96x vs FlashInfer baseline, rank #10, 54/54 passed
+- **Prefill**: COMPILE_ERROR (missing `fla` package on eval server)
+- Latency range: 3-18 µs across 54 workloads (B=1..64)
+- Competition baseline `flashinfer_wrapper_9b7f1e` calls the same `gated_delta_rule_decode_pretranspose` as our `fi-baseline` algo (functionally identical kernel)
+- At B=1, fla-recurrent is ~1.31x faster than fi-baseline (CUPTI: 2.56 vs 3.36 µs)
+- The 0.96x average means we lose on B>1 workloads (44 of 54 workloads have B=4..64, never benchmarked locally)
+- Eval uses `flashinfer-bench` with `--use-isolated-runner --timeout=300`, GPU clocks locked (`nvidia-smi -ac 3996,1965`)
+- Docker image: `flashinfer/flashinfer-ci-cu132:latest`, includes `cupti-python`
+- Full eval details: `EVALUATION.md`
 
 ## Modal Deployment Notes
 - The Modal image must install ALL Python packages that `kernel.py` imports at the top level
