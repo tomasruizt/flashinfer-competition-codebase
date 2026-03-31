@@ -261,7 +261,10 @@ python -m scripts.run_local --algo=pt-reference      # compiled PyTorch referenc
 - fla's BV=8 creates 16 V-tiles per head; each block redundantly loads q, k, and gate scalars
 - fi-baseline uses shared memory (9 KB/block) to stage data, achieving 49% L2 hit rate vs fla's 3%
 - fi-baseline's main weakness: tail effect (1.73 waves, 50% estimated speedup from NCU)
-- **Optimization path**: increase BV at large B to reduce grid size and redundant loads. BV=8 is optimal for B=1 (max parallelism) but wasteful at B=64 (already 6.9 waves). Batch-adaptive BV dispatch is a one-line change in the wrapper.
+- **Adaptive warps helped**: switching to 4 warps at B>=8 improved B=64 from 18.18 to 15.01 µs (17%)
+- **BV=128 tested at B=64**: 18.18 µs, worse than BV=8 (15.01 µs). Root cause not isolated (could be register pressure, reduced parallelism, or both).
+- **fla-tma tested at B=64**: 34.88 µs, much worse. Root cause not isolated.
+- **Remaining gap** (15.01 vs 12.74 µs, 1.18x): NCU shows fla executes 2.2x more instructions and has 2.6% vs 49% L2 hit rate, but these are correlations, not confirmed causes. Potential directions: SMEM for q/k sharing (hurt at B=1 but B=64 is a different regime), or a different thread-to-data mapping.
 - NCU logs: `logs/ncu-decode-modal-{fla-recurrent,fi-baseline}-widx53.log`
 
 ## Modal Deployment Notes
