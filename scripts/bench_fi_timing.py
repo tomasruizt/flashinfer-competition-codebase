@@ -27,6 +27,7 @@ def run_benchmark(
     def_name: DefinitionName,
     iters: int = None,
     cupti: bool = True,
+    workload_idx: int = 0,
 ):
     """Run bench_gpu_time for the given algo names and print results."""
     algos = load_algo_functions()
@@ -37,7 +38,7 @@ def run_benchmark(
 
     rows = []
     for name in algo_names:
-        tensors = load_workload_tensors(def_name)
+        tensors = load_workload_tensors(def_name, workload_idx=workload_idx)
         kernel_fn = algos[name]
         times_ms = bench_gpu_time(
             fn=lambda kf=kernel_fn, t=tensors: kf(**t),
@@ -90,6 +91,12 @@ def main():
         default=True,
         help="Use CUPTI timing (default: True, set False when running under nsys)",
     )
+    parser.add_argument(
+        "--workload-idx",
+        type=int,
+        default=0,
+        help="Workload index (default: 0)",
+    )
     args = parser.parse_args()
 
     run_benchmark(
@@ -97,6 +104,7 @@ def main():
         def_name=args.definition,
         iters=args.iters,
         cupti=args.use_cupti,
+        workload_idx=args.workload_idx,
     )
 
 

@@ -254,8 +254,10 @@ nvbench-modal-cuda-all:
 nvbench-modal-all:
 	ALGO=all modal run -m scripts.bench_nvbench_modal
 
+WORKLOAD_IDX ?= 0
+
 fi-timing:
-	python -m scripts.bench_fi_timing --algo=$(ALGO)
+	python -m scripts.bench_fi_timing --algo=$(ALGO) --workload-idx=$(WORKLOAD_IDX)
 
 prefill-fi-timing:
 	python -m scripts.bench_fi_timing --algo=prefill-reference,prefill-fla-chunk --definition=gdn_prefill_qk4_v8_d128_k_last

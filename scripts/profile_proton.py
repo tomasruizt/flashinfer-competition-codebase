@@ -81,10 +81,12 @@ def main():
     print("Done.")
 
 
-def load_workload_tensors(def_name: DefinitionName, device="cuda", trace_set_path=None):
+def load_workload_tensors(
+    def_name: DefinitionName, device="cuda", trace_set_path=None, workload_idx=0
+):
     trace_set = TraceSet.from_path(trace_set_path)
     definition = trace_set.definitions[def_name]
-    workload = trace_set.workloads[def_name][0].workload
+    workload = trace_set.workloads[def_name][workload_idx].workload
 
     safe_tensors = load_safetensors(definition, workload, trace_set.root)
     input_list = gen_inputs(
