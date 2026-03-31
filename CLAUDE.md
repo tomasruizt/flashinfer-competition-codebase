@@ -274,6 +274,15 @@ python -m scripts.run_local --algo=pt-reference      # compiled PyTorch referenc
 - The benchmark framework's `COMPILE_ERROR` status is opaque — it covers import errors, torch.compile failures, and any other pre-execution errors, with no error message surfaced in the output
 - To debug Modal errors: check that all imports in `kernel.py` are available in the Modal image (`run_modal.py` `.pip_install(...)`)
 - **CUDA kernels need nvcc**: `debian_slim` lacks the CUDA toolkit. Use `Image.from_registry("nvidia/cuda:12.8.1-devel-ubuntu22.04", add_python="3.12")` as the base image so `tvm_ffi.cpp.build()` can compile `.cu` files. The `-devel` suffix is required (runtime-only images lack nvcc and headers).
+- **Triton autotune cache**: `TRITON_CACHE_DIR` is set to `/data/cache/triton` on the persistent Modal volume (`flashinfer-trace`) so compiled kernels and autotune configs survive container restarts. Without this, every Modal run re-autotuned from scratch. Configured in `modal_config.py:set_triton_cache()`.
+- **SOLUTION env var**: `run_modal.py` accepts `SOLUTION=name` to load a pre-existing solution JSON from the dataset (e.g. `flashinfer_wrapper_123ca6`) instead of packing from source. Used by `make modal-official-prefill-baseline`.
+
+## FlashInfer Prefill Baseline (prefill-fi-baseline algo)
+- Wraps `flashinfer.gdn_prefill.chunk_gated_delta_rule` (CuTe-DSL Blackwell kernel, SM90+ only)
+- Requires `unsqueeze(0)` on q/k/v (Blackwell kernel expects 4D `[B, T, H, D]`)
+- Only usable on Modal B200, not local RTX 3090
+- FlashInfer baseline solution in dataset: `flashinfer_wrapper_123ca6` (bundles its own `gdn_blackwell/` module)
+- Compare via: `make prefill-fi-timing-modal` (runs both `prefill-fla-chunk` and `prefill-fi-baseline`)
 
 ## Proton Intra-Kernel Profiling
 - Triton 3.5.1 includes **Proton**, an intra-kernel profiler: `import triton.profiler as proton`
@@ -317,9 +326,17 @@ python -m scripts.run_local --algo=pt-reference      # compiled PyTorch referenc
 - ~30 PyTorch elementwise kernels (~50 us total): `prepare_chunk_indices` (called ~5x with same args), gate math, reshapes
 - Biggest gaps are before Triton kernel launches: 82-150 us each (Python -> Triton runtime -> CUDA dispatch)
 - `prepare_chunk_indices` generates a repeating 4-kernel pattern between every pair of Triton kernels
-- Gate math fused into `fused_gate_cumsum_kernel`: 1742 -> 1201 us (31% faster)
+- Gate math fused into `fused_gate_cumsum_kernel`: 1742 -> 1201 us (31% faster, RTX 3090)
 - Remaining opportunities: cache `prepare_chunk_indices` (~15%), CUDA graphs (would eliminate ~1100 us of launch overhead)
 - Full analysis: `findings/research.md` under "Prefill kernel nsys analysis"
+
+### Prefill performance (B200 via Modal, CUPTI, workload 0)
+| Algo | CUPTI median (us) |
+|------|---:|
+| prefill-fi-baseline | 185 |
+| prefill-fla-chunk | 1536 |
+- **8.3x slower than FlashInfer baseline** on B200. The gap is almost entirely CPU launch overhead (not kernel compute).
+- FlashInfer's Blackwell kernel is a single fused CuTe-DSL kernel; our FLA code launches 6 Triton sub-kernels + ~30 PyTorch elementwise kernels per forward pass.
 
 ## Triton Autotuning
 - Competition eval uses CUPTI (`bench_gpu_time_with_cupti`), which measures pure GPU kernel time. Python-side `@triton.autotune` dispatch overhead is NOT included in the measurement.
@@ -429,6 +446,9 @@ ALGO=cuda-v4 make nvbench-modal    # NVBench on Modal B200
 make nvbench-all            # NVBench all algos (local)
 make fi-timing              # FlashInfer CUPTI timing (default algo)
 make fi-timing-modal        # FlashInfer CUPTI timing on Modal B200
+make prefill-fi-timing-modal # Prefill CUPTI: our fla-chunk vs fi-baseline on B200
+make modal-official-prefill  # Official eval of our prefill on B200
+make modal-official-prefill-baseline  # Official eval of FI baseline prefill on B200
 ALGO=all make fi-timing     # CUPTI timing all algos
 make clean-triton-cache     # clear ~/.triton/cache
 ```
