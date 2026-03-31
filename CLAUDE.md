@@ -451,6 +451,8 @@ make modal-official-prefill  # Official eval of our prefill on B200
 make modal-official-prefill-baseline  # Official eval of FI baseline prefill on B200
 ALGO=all make fi-timing     # CUPTI timing all algos
 make clean-triton-cache     # clear ~/.triton/cache
+make submit-decode          # rebase submit-decode on main, tag, force-push
+make submit-prefill         # rebase submit-prefill on main, tag, force-push
 ```
 - Env var overrides: `NUM_WORKLOADS=3 make modal-fla` (limit workloads), `ALGO=... make modal-fla`
 - `ALGO` accepts comma-separated values for multi-algo NVBench: `ALGO=cuda-v1,cuda-v4 make nvbench`
