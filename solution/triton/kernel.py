@@ -1,13 +1,13 @@
 import math
-import os
+
 import torch
 import torch.nn.functional as F
-
-torch.set_float32_matmul_precision("high")
 import triton
 import triton.language as tl
 import triton.profiler.language as pl
 from flashinfer.gdn_decode import gated_delta_rule_decode_pretranspose
+
+torch.set_float32_matmul_precision("high")
 
 # Allocator for Triton kernels that need scratch memory (TMA on Blackwell)
 triton.set_allocator(
@@ -168,8 +168,11 @@ def kernel_fla_recurrent(
     N = B
     BK = 128
     BV = 8
+    num_warps = 8 if B <= 4 else 4
 
-    grid = lambda meta: (triton.cdiv(V, meta["BV"]), N * HV)
+    def grid(meta):
+        return (triton.cdiv(V, meta["BV"]), N * HV)
+
     fused_recurrent_gated_delta_rule_fwd_kernel[grid](
         q=q,
         k=k,
@@ -189,8 +192,7 @@ def kernel_fla_recurrent(
         V=V,
         BK=BK,
         BV=BV,
-        PROFILE=bool(os.environ.get("PROTON_PROFILE")),
-        num_warps=8,
+        num_warps=num_warps,
         num_stages=2,
     )
 
@@ -202,18 +204,16 @@ def kernel_fla_recurrent(
 # ---------------------------------------------------------------------------
 
 
-# To sweep configs, uncomment @triton.autotune below and remove num_warps/num_stages/BV
-# from the launch call. Grid is already adaptive via lambda meta.
-# Run with TRITON_PRINT_AUTOTUNING=1, logs go to ./logs/fib-bench/.
-# Best config on RTX 3090: BV=8 or 16 (tied at ~4.25 µs), num_warps=8
-# Best config on B200:    BV=8,  num_warps=8, num_stages=2
-# BV matters: 4.25 µs (BV=8) vs 7.27 µs (BV=128). See findings/research.md.
+# Autotune sweep (B200, CUPTI): BV=8 always wins. Warp count matters:
+#   B<=4: num_warps=8 (more warps hide latency when few blocks)
+#   B>=8: num_warps=4 (fewer warps reduce contention at high occupancy)
+# To re-run: uncomment @triton.autotune, remove BV/num_warps/num_stages from launch call.
 # @triton.autotune(
 #     configs=[
 #         triton.Config({"BV": bv}, num_warps=nw, num_stages=ns)
 #         for bv in [8, 16, 32, 64, 128]
-#         for nw in [1, 2, 4, 8]
-#         for ns in [1, 2, 3]
+#         for nw in [4, 8]
+#         for ns in [1, 2]
 #     ],
 #     key=["B", "H", "HV", "K", "V", "BK"],
 # )

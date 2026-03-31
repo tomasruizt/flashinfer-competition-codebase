@@ -227,15 +227,15 @@ python -m scripts.run_local --algo=pt-reference      # compiled PyTorch referenc
 - Full eval details: `EVALUATION.md`
 
 ### fla-recurrent vs fi-baseline by batch size (CUPTI, B200)
-| Batch size | fla-recurrent | fi-baseline | Ratio (fla/fi) | Winner |
-| ---------- | ------------- | ----------- | -------------- | ------ |
-| B=1        | 2.59 µs       | 3.36 µs     | 0.77           | fla 1.30x faster |
-| B=4        | 3.07 µs       | 3.65 µs     | 0.84           | fla 1.19x faster |
-| B=8        | 4.10 µs       | 4.22 µs     | 0.97           | ~tied |
-| B=16       | 6.11 µs       | 5.31 µs     | 1.15           | fi 1.15x faster |
-| B=32       | 10.30 µs      | 7.71 µs     | 1.34           | fi 1.34x faster |
-| B=48       | 14.11 µs      | 10.50 µs    | 1.35           | fi 1.35x faster |
-| B=64       | 18.18 µs      | 12.74 µs    | 1.43           | fi 1.43x faster |
+| Batch size | fla (old, 8 warps) | fla (new, adaptive warps) | fi-baseline | New ratio |
+| ---------- | ------------------ | ------------------------- | ----------- | --------- |
+| B=1        | 2.59 µs            | 2.46 µs                   | 3.36 µs     | 0.73      |
+| B=4        | 3.07 µs            | 3.10 µs                   | 3.65 µs     | 0.85      |
+| B=8        | 4.10 µs            | 4.10 µs                   | 4.22 µs     | 0.97      |
+| B=16       | 6.11 µs            | 5.47 µs                   | 5.31 µs     | 1.03      |
+| B=32       | 10.30 µs           | 8.80 µs                   | 7.71 µs     | 1.14      |
+| B=48       | 14.11 µs           | 12.35 µs                  | 10.50 µs    | 1.18      |
+| B=64       | 18.18 µs           | 15.01 µs                  | 12.74 µs    | 1.18      |
 
 - Crossover at B=8: fla-recurrent wins below, fi-baseline wins above
 - FLA kernel latency scales ~linearly with B (2.6 us per batch item at B=64)
@@ -308,9 +308,13 @@ python -m scripts.run_local --algo=pt-reference      # compiled PyTorch referenc
 - Full analysis: `findings/research.md` under "TTGIR scope analysis", "The convert_layout barrier", "BV=1 experiment"
 
 ## Triton Autotuning
-- **Avoid `@triton.autotune`** for this kernel; hardcode config at launch site (adds ~6 µs Python dispatch overhead)
-- `@triton.autotune` is incompatible with `torch.compile` (compile bypasses autotuner entirely)
-- BV tile size matters: BV=8/16 tied at ~4.25 µs, degrades to ~7.3 µs at BV=128 (see `findings/research.md`). Hardcoded: BV=8, num_warps=8, num_stages=2
+- Competition eval uses CUPTI (`bench_gpu_time_with_cupti`), which measures pure GPU kernel time. Python-side `@triton.autotune` dispatch overhead is NOT included in the measurement.
+- `@triton.autotune` is incompatible with `torch.compile` (compile bypasses autotuner entirely), but we don't use torch.compile for fla-recurrent.
+- BV=8 always wins across all batch sizes on B200. The key lever is **warp count**:
+  - B<=4: `num_warps=8` (more warps hide latency when few blocks)
+  - B>=8: `num_warps=4` (fewer warps reduce contention at high occupancy)
+- Hardcoded: `BV=8, num_warps = 8 if B <= 4 else 4, num_stages=2`
+- This improved B>=8 by 10-17% (e.g. B=64: 18.18 -> 15.01 µs, B=48: 14.11 -> 12.35 µs)
 - Detailed investigation: `findings/research.md` under "Triton Autotuning Investigation"
 
 ## Benchmark Timing Fix (torch.cuda.synchronize removal)
