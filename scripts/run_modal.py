@@ -116,27 +116,55 @@ def print_results(results: dict):
 algo = os.getenv("ALGO", "fla-recurrent")
 num_workloads = int(os.getenv("NUM_WORKLOADS", "0"))
 definition = os.getenv("DEFINITION", DEFS.DECODE)
+# SOLUTION env var: load an existing solution JSON from the dataset instead of packing
+solution_name = os.getenv("SOLUTION", "")
+
+
+def load_solution_from_dataset(def_name: str, sol_name: str) -> Solution:
+    """Load a pre-existing solution JSON from the mlsys26-contest dataset."""
+    from .shared import PROJECT_ROOT
+
+    sol_dir = (
+        PROJECT_ROOT.parent
+        / "mlsys26-contest"
+        / "solutions"
+        / "baseline"
+        / "gdn"
+        / def_name
+    )
+    sol_path = sol_dir / f"{sol_name}.json"
+    if not sol_path.exists():
+        available = [f.stem for f in sol_dir.glob("*.json")]
+        raise FileNotFoundError(
+            f"Solution '{sol_name}' not found at {sol_path}. Available: {available}"
+        )
+    return Solution.model_validate_json(sol_path.read_text())
 
 
 @app.local_entrypoint()
 def main():
     """Pack solution and run benchmark on Modal."""
-    entry_point = ALGO_ENTRY_POINTS[algo]
-    print(f"Algorithm: {algo} (entry_point: {entry_point})")
+    if solution_name:
+        print(f"Loading existing solution: {solution_name}")
+        solution = load_solution_from_dataset(definition, solution_name)
+    else:
+        entry_point = ALGO_ENTRY_POINTS[algo]
+        print(f"Algorithm: {algo} (entry_point: {entry_point})")
 
-    print("Packing solution from source files...")
-    language = ALGO_LANGUAGES.get(algo)
-    dps = algo not in ALGO_NO_DPS
-    solution_path = pack_solution(
-        definition=definition,
-        entry_point=entry_point,
-        name=algo,
-        language=language,
-        dps=dps,
-    )
+        print("Packing solution from source files...")
+        language = ALGO_LANGUAGES.get(algo)
+        dps = algo not in ALGO_NO_DPS
+        solution_path = pack_solution(
+            definition=definition,
+            entry_point=entry_point,
+            name=algo,
+            language=language,
+            dps=dps,
+        )
 
-    print("\nLoading solution...")
-    solution = Solution.model_validate_json(solution_path.read_text())
+        print("\nLoading solution...")
+        solution = Solution.model_validate_json(solution_path.read_text())
+
     print(f"Loaded: {solution.name} ({solution.definition})")
 
     print(

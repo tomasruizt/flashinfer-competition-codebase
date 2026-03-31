@@ -42,6 +42,12 @@ official-bench-gdn-prefill-fla-chunk: pack-prefill-fla-to-dataset
 		--save-results --use-isolated-runner --log-level INFO --resume --timeout 300 \
 		--warmup-runs 1 --iterations 5 --num-trials 3
 
+modal-official-prefill:
+	ALGO=prefill-fla-chunk DEFINITION=gdn_prefill_qk4_v8_d128_k_last modal run -m scripts.run_modal
+
+modal-official-prefill-baseline:
+	SOLUTION=flashinfer_wrapper_123ca6 DEFINITION=gdn_prefill_qk4_v8_d128_k_last modal run -m scripts.run_modal
+
 pack-prefill-fla-to-dataset:
 	python -m scripts.pack_solution --algo=prefill-fla-chunk --definition=gdn_prefill_qk4_v8_d128_k_last
 	cp solution.json ../mlsys26-contest/solutions/baseline/gdn/gdn_prefill_qk4_v8_d128_k_last/prefill-fla-chunk.json
