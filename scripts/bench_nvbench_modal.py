@@ -16,7 +16,12 @@ import sys
 
 import modal
 
-from .modal_config import TRACE_SET_PATH, image as base_image, trace_volume
+from .modal_config import (
+    TRACE_SET_PATH,
+    image as base_image,
+    set_triton_cache,
+    trace_volume,
+)
 from .shared import resolve_algo_names
 
 app = modal.App("nvbench-gdn")
@@ -34,6 +39,7 @@ algo = os.getenv("ALGO", "all")
     retries=2,
 )
 def run_nvbench(algo_names: list[str]):
+    set_triton_cache()
     # Inside the Modal container, scripts/ and solution/ are mounted at /root/.
     # Add /root to sys.path so `scripts` and `solution` packages are importable.
     sys.path.insert(0, "/root")

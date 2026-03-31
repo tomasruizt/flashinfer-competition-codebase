@@ -12,7 +12,12 @@ import sys
 
 import modal
 
-from .modal_config import TRACE_SET_PATH, image as base_image, trace_volume
+from .modal_config import (
+    TRACE_SET_PATH,
+    image as base_image,
+    set_triton_cache,
+    trace_volume,
+)
 
 app = modal.App("ncu-gdn")
 
@@ -35,6 +40,7 @@ KERNEL_NAMES = {
     volumes={TRACE_SET_PATH: trace_volume},
 )
 def run_ncu(algo: str, workload_idx: int, mode: str):
+    set_triton_cache()
     sys.path.insert(0, "/root")
 
     kernel_name = KERNEL_NAMES[algo]

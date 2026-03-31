@@ -19,7 +19,7 @@ import os
 import modal
 from flashinfer_bench import Benchmark, BenchmarkConfig, Solution, TraceSet
 
-from .modal_config import TRACE_SET_PATH, image, trace_volume
+from .modal_config import TRACE_SET_PATH, image, set_triton_cache, trace_volume
 from .pack_solution import pack_solution
 from .shared import ALGO_ENTRY_POINTS, ALGO_LANGUAGES, ALGO_NO_DPS, DEFS
 
@@ -35,6 +35,7 @@ def run_benchmark(
     solution: Solution, config: BenchmarkConfig = None, num_workloads: int = 0
 ) -> dict:
     """Run benchmark on Modal B200 and return results."""
+    set_triton_cache()
     if config is None:
         config = BenchmarkConfig(
             warmup_runs=3,

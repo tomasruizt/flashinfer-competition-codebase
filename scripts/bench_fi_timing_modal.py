@@ -16,7 +16,7 @@ import sys
 
 import modal
 
-from .modal_config import TRACE_SET_PATH, image, trace_volume
+from .modal_config import TRACE_SET_PATH, image, set_triton_cache, trace_volume
 from .shared import DEFS, DefinitionName, resolve_algo_names
 
 app = modal.App("fi-timing-gdn")
@@ -36,11 +36,13 @@ workload_idx = int(os.getenv("WORKLOAD_IDX", "0"))
 def run_fi_timing(
     algo_names: list[str], def_name: DefinitionName, workload_idx: int = 0
 ):
+    set_triton_cache()
     sys.path.insert(0, "/root")
 
     from scripts.bench_fi_timing import run_benchmark
 
     run_benchmark(algo_names, def_name, workload_idx=workload_idx)
+    trace_volume.commit()
 
 
 @app.local_entrypoint()
