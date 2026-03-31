@@ -1025,3 +1025,56 @@ BV=8 with 8 warps remains optimal. The single `bar.sync` for convert_layout is a
 Evaluated whether [TLX](https://github.com/facebookexperimental/triton/tree/tlx) (Facebook's warp-aware Triton extension) could help. TLX provides warp specialization (`async_tasks`), TMA async loads, async Tensor Core ops (`async_dot`), named barriers, and explicit shared memory management.
 
 **Conclusion: not applicable.** TLX targets large compute/bandwidth-bound kernels (GEMM, attention). The [2-Simplicial Attention blog post](https://pytorch.org/blog/fast-2-simplicial-attention-hardware-efficient-kernels-in-tlx/) achieved 1.74x by hitting 588 TFLOPs on Tensor Cores. Our kernel runs at ~2% of peak FP32, ~16% of peak DRAM BW. TLX's warp specialization and pipelining have nothing to bite on in this regime. TLX also does not expose per-warp stores without shared memory, so it cannot eliminate the `convert_layout` barrier.
+
+## Prefill kernel nsys analysis (RTX 3090, workload 0: seq_len=6)
+
+Profiled `prefill-fla-chunk` with nsys to understand kernel launch overhead. The FLA chunkwise prefill decomposes into 6 Triton sub-kernels per forward pass, plus many PyTorch elementwise kernels for gate math and `prepare_chunk_indices`.
+
+### Per-forward-pass breakdown (51 kernel launches, 1650 us wall time)
+
+| Kernel | GPU time (us) | Purpose |
+|--------|---:|---------|
+| `chunk_local_cumsum_scalar` | 1.6 | Gate cumsum within chunks |
+| `chunk_scaled_dot_kkt_fwd` | 3.3 | K@K^T scaled by gates |
+| `merge_16x16_to_64x64_inverse` | 4.5 | WY triangular solve |
+| `recompute_w_u_fwd` | 6.6 | Recompute w, u for WY decomposition |
+| `chunk_gated_delta_rule_fwd_kernel_h` | 4.8 | State update |
+| `chunk_fwd_kernel_o` | 6.4 | Output computation |
+| **6 Triton kernels subtotal** | **~27** | |
+| ~30 PyTorch elementwise kernels | ~50 | Gate prep, `prepare_chunk_indices`, reshapes |
+| 2 CUB scan kernels | ~3 | `cumsum` inside `prepare_chunk_indices` |
+| **Total GPU compute** | **~115** | **6.6% GPU utilization** |
+| **CPU launch gaps** | **~1630** | **93% of wall time** |
+
+### Launch gap analysis
+
+The Triton kernel launches have the worst gaps (Python -> Triton runtime -> CUDA dispatch is slower than PyTorch's C++ dispatcher):
+
+| Before kernel | Gap (us) |
+|---|---:|
+| `chunk_fwd_kernel_o` | 150 |
+| `recompute_w_u_fwd` | 142 |
+| `chunk_scaled_dot_kkt_fwd` | 139 |
+| `merge_16x16_to_64x64_inverse` (via elementwise) | 103 |
+| `chunk_local_cumsum_scalar` (iter boundary) | 98 |
+| `chunk_gated_delta_rule_fwd_kernel_h` | 82 |
+
+### Sources of the ~30 PyTorch elementwise kernels
+
+1. **`prepare_chunk_indices`** (called once per sub-kernel that uses cu_seqlens, so ~5 times per forward pass): `torch.diff`, `torch.arange`, `.eq()`, `.cumsum()`, `torch.stack`, `.to()`. Each call launches ~4 tiny kernels. This is the repeating 4-kernel pattern between every pair of Triton kernels.
+2. **Gate precomputation** (before fusion): `a.float() + dt_bias.float()`, `torch.exp(A_log)`, `F.softplus(x)`, multiply, negate, `torch.sigmoid(b.float())`. About 7-8 kernels.
+3. **`repeat_interleave`** for GVA q/k expansion (4 -> 8 heads).
+4. **`output.copy_`** and **`new_state.copy_`** with transpose at the end.
+
+### Optimization applied: fused gate math + cumsum
+
+Replaced the Python gate math (~8 PyTorch elementwise launches) + separate cumsum kernel with a single `fused_gate_cumsum_kernel` that computes `g = cumsum(-exp(A_log) * softplus(a + dt_bias))` and `beta = sigmoid(b)` in one Triton kernel.
+
+Result: 1742 -> 1201 us median (31% faster). The savings exceeded the ~100 us estimated from just the gate kernels; the extra improvement comes from eliminating `unsqueeze(0)` calls and reducing Python interpreter overhead between ops.
+
+### Remaining optimization opportunities
+
+1. **Cache `prepare_chunk_indices`**: Called ~5 times per forward pass with identical `(cu_seqlens, chunk_size=64)` args. Each call launches ~4 elementwise kernels with ~15 us gap each. Caching would save ~4 * (4 * 16 us) = ~256 us (~15% of current latency).
+2. **CUDA Graphs**: Would eliminate virtually all ~1100 us of remaining launch overhead by replaying all kernel launches as a single graph. Requires static shapes (or padding to fixed sizes).
+3. **Kernel fusion**: Merge some of the 6 Triton sub-kernels to reduce launch count. The `chunk_local_cumsum` (1.6 us) could potentially be merged into `chunk_scaled_dot_kkt_fwd`.
+4. **For larger workloads** (T=8192+), kernel compute will dominate more, but launch overhead still scales with num_chunks * num_heads.

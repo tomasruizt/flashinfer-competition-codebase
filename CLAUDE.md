@@ -310,6 +310,17 @@ python -m scripts.run_local --algo=pt-reference      # compiled PyTorch referenc
 - **BV=1 doesn't help**: 1024 blocks but worse latency (4.6 us at best vs 4.3 us baseline). With multiple warps, K-reductions become cross-warp, adding more `bar.sync` than the V-dimension approach.
 - Full analysis: `findings/research.md` under "TTGIR scope analysis", "The convert_layout barrier", "BV=1 experiment"
 
+### Prefill nsys profiling (RTX 3090)
+- One forward pass (workload 0, seq_len=6): 51 kernel launches, ~115 us GPU compute, ~1650 us wall time (6.6% GPU utilization)
+- **93% of wall time is GPU idle**, waiting for CPU to launch the next kernel
+- 6 Triton sub-kernels (~27 us total): cumsum, kkt, solve_tril, recompute_w_u, state_update_h, output_o
+- ~30 PyTorch elementwise kernels (~50 us total): `prepare_chunk_indices` (called ~5x with same args), gate math, reshapes
+- Biggest gaps are before Triton kernel launches: 82-150 us each (Python -> Triton runtime -> CUDA dispatch)
+- `prepare_chunk_indices` generates a repeating 4-kernel pattern between every pair of Triton kernels
+- Gate math fused into `fused_gate_cumsum_kernel`: 1742 -> 1201 us (31% faster)
+- Remaining opportunities: cache `prepare_chunk_indices` (~15%), CUDA graphs (would eliminate ~1100 us of launch overhead)
+- Full analysis: `findings/research.md` under "Prefill kernel nsys analysis"
+
 ## Triton Autotuning
 - Competition eval uses CUPTI (`bench_gpu_time_with_cupti`), which measures pure GPU kernel time. Python-side `@triton.autotune` dispatch overhead is NOT included in the measurement.
 - `@triton.autotune` is incompatible with `torch.compile` (compile bypasses autotuner entirely), but we don't use torch.compile for fla-recurrent.
