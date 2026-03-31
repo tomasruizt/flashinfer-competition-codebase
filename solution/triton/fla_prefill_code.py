@@ -272,6 +272,115 @@ def chunk_local_cumsum(
 
 
 # ---------------------------------------------------------------------------
+# Fused gate computation + cumsum
+# Replaces: Python gate math (exp, softplus, sigmoid) + cumsum kernel
+# ---------------------------------------------------------------------------
+
+
+@triton.heuristics({"IS_VARLEN": lambda args: args["cu_seqlens"] is not None})
+@triton.autotune(
+    configs=[triton.Config({}, num_warps=num_warps) for num_warps in [1, 2, 4, 8]],
+    key=["B", "H", "BT", "IS_VARLEN"],
+)
+@triton.jit(do_not_specialize=["T"])
+def fused_gate_cumsum_kernel(
+    a_ptr,
+    b_ptr,
+    dt_bias_ptr,
+    A_log_ptr,
+    g_cumsum_ptr,
+    beta_out_ptr,
+    cu_seqlens,
+    chunk_indices,
+    T,
+    B: tl.constexpr,
+    H: tl.constexpr,
+    BT: tl.constexpr,
+    IS_VARLEN: tl.constexpr,
+):
+    """Compute g = cumsum(-exp(A_log) * softplus(a + dt_bias)) and beta = sigmoid(b)."""
+    i_t, i_bh = tl.program_id(0), tl.program_id(1)
+    i_b, i_h = i_bh // H, i_bh % H
+
+    if IS_VARLEN:
+        i_n, i_t = (
+            tl.load(chunk_indices + i_t * 2).to(tl.int32),
+            tl.load(chunk_indices + i_t * 2 + 1).to(tl.int32),
+        )
+        bos, eos = (
+            tl.load(cu_seqlens + i_n).to(tl.int32),
+            tl.load(cu_seqlens + i_n + 1).to(tl.int32),
+        )
+        T = eos - bos
+    else:
+        bos, eos = i_b * T, i_b * T + T
+
+    # Per-head constants
+    neg_exp_A = -tl.exp(tl.load(A_log_ptr + i_h).to(tl.float32))
+    dt_bias_h = tl.load(dt_bias_ptr + i_h).to(tl.float32)
+
+    # Load a [total_seq_len, H] with stride H
+    p_a = tl.make_block_ptr(a_ptr + bos * H + i_h, (T,), (H,), (i_t * BT,), (BT,), (0,))
+    b_a = tl.load(p_a, boundary_check=(0,)).to(tl.float32)
+
+    # g = -exp(A_log) * softplus(a + dt_bias), then cumsum
+    x = b_a + dt_bias_h
+    sp = tl.where(x > 20.0, x, tl.log(1.0 + tl.exp(x)))
+    g_raw = neg_exp_A * sp
+    b_g = tl.cumsum(g_raw, axis=0)
+
+    p_g = tl.make_block_ptr(
+        g_cumsum_ptr + bos * H + i_h, (T,), (H,), (i_t * BT,), (BT,), (0,)
+    )
+    tl.store(p_g, b_g.to(p_g.dtype.element_ty), boundary_check=(0,))
+
+    # beta = sigmoid(b)
+    p_b = tl.make_block_ptr(b_ptr + bos * H + i_h, (T,), (H,), (i_t * BT,), (BT,), (0,))
+    b_b = tl.load(p_b, boundary_check=(0,)).to(tl.float32)
+    b_beta = tl.sigmoid(b_b)
+
+    p_beta = tl.make_block_ptr(
+        beta_out_ptr + bos * H + i_h, (T,), (H,), (i_t * BT,), (BT,), (0,)
+    )
+    tl.store(p_beta, b_beta.to(p_beta.dtype.element_ty), boundary_check=(0,))
+
+
+def fused_gate_cumsum(
+    a: torch.Tensor,
+    b: torch.Tensor,
+    dt_bias: torch.Tensor,
+    A_log: torch.Tensor,
+    cu_seqlens: torch.LongTensor | None = None,
+    chunk_size: int = 64,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Fused gate computation + cumsum. Returns (g_cumsum, beta) both [1, T, H] f32."""
+    T, H = a.shape
+    BT = chunk_size
+    ci = prepare_chunk_indices(cu_seqlens, BT) if cu_seqlens is not None else None
+    NT = triton.cdiv(T, BT) if cu_seqlens is None else len(ci)
+
+    B = 1
+    g_cumsum = torch.empty(B, T, H, device=a.device, dtype=torch.float32)
+    beta_out = torch.empty(B, T, H, device=a.device, dtype=torch.float32)
+
+    fused_gate_cumsum_kernel[(NT, B * H)](
+        a_ptr=a,
+        b_ptr=b,
+        dt_bias_ptr=dt_bias,
+        A_log_ptr=A_log,
+        g_cumsum_ptr=g_cumsum,
+        beta_out_ptr=beta_out,
+        cu_seqlens=cu_seqlens,
+        chunk_indices=ci,
+        T=T,
+        B=B,
+        H=H,
+        BT=BT,
+    )
+    return g_cumsum, beta_out
+
+
+# ---------------------------------------------------------------------------
 # chunk_scaled_dot_kkt_fwd  (from fla.ops.common.chunk_scaled_dot_kkt)
 # ---------------------------------------------------------------------------
 
@@ -1624,8 +1733,10 @@ def chunk_gated_delta_rule_fwd(
     initial_state: torch.Tensor,
     output_final_state: bool,
     cu_seqlens: torch.LongTensor | None = None,
+    skip_cumsum: bool = False,
 ):
-    g = chunk_local_cumsum(g, chunk_size=64, cu_seqlens=cu_seqlens)
+    if not skip_cumsum:
+        g = chunk_local_cumsum(g, chunk_size=64, cu_seqlens=cu_seqlens)
     # obtain WY representation. u is actually the new v.
     A = chunk_scaled_dot_kkt_fwd(
         k=k,
@@ -1685,6 +1796,7 @@ def chunk_gated_delta_rule(
     output_final_state: bool = False,
     use_qk_l2norm_in_kernel: bool = False,
     cu_seqlens: torch.LongTensor | None = None,
+    skip_cumsum: bool = False,
     **kwargs,
 ):
     if cu_seqlens is not None:
@@ -1722,5 +1834,6 @@ def chunk_gated_delta_rule(
         initial_state=initial_state,
         output_final_state=output_final_state,
         cu_seqlens=cu_seqlens,
+        skip_cumsum=skip_cumsum,
     )
     return o.to(q.dtype), final_state

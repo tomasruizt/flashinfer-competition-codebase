@@ -3,7 +3,7 @@ import math
 import torch
 import torch.nn.functional as F
 
-from .fla_prefill_code import chunk_gated_delta_rule
+from .fla_prefill_code import chunk_gated_delta_rule, fused_gate_cumsum
 
 
 @torch.cuda.nvtx.range("kernel_prefill_fla_chunk")
@@ -15,14 +15,12 @@ def kernel_prefill_fla_chunk(
     FLA chunkwise prefill wrapper for the competition interface (DPS).
 
     Adapts between competition tensors and FLA's chunk_gated_delta_rule:
-    - Precomputes gates: g (log-space decay), beta (sigmoid'd update gate)
+    - Fused gate computation: g (log-space decay + cumsum) and beta (sigmoid) in one Triton kernel
     - Reshapes: [total_seq_len, H, D] -> [1, total_seq_len, H, D] (FLA expects B=1 for varlen)
     - Transposes state: [N, H, V, K] (k-last) <-> [N, H, K, V] (FLA)
     """
-    # Precompute gates from raw parameters
-    x = a.float() + dt_bias.float()
-    g = -torch.exp(A_log.float()) * F.softplus(x)  # log-space decay [total_seq_len, HV]
-    beta = torch.sigmoid(b.float())  # update gate [total_seq_len, HV]
+    # Fused gate computation + cumsum in a single Triton kernel
+    g, beta = fused_gate_cumsum(a, b, dt_bias, A_log, cu_seqlens=cu_seqlens)
 
     # Add batch dim: [total_seq_len, ...] -> [1, total_seq_len, ...]
     # GVA: repeat-interleave q/k from 4 heads to 8 so FLA produces 8-head state
@@ -31,8 +29,7 @@ def kernel_prefill_fla_chunk(
     q_4d = q.repeat_interleave(num_v_heads // num_q_heads, dim=1).unsqueeze(0)
     k_4d = k.repeat_interleave(num_v_heads // num_q_heads, dim=1).unsqueeze(0)
     v_4d = v.unsqueeze(0)
-    g = g.unsqueeze(0)
-    beta = beta.unsqueeze(0)
+    # g and beta already [1, T, H] from fused_gate_cumsum
 
     # Transpose state: [N, H, V, K] -> [N, H, K, V]
     initial_state = state.transpose(-1, -2) if state is not None else None
@@ -48,6 +45,7 @@ def kernel_prefill_fla_chunk(
         output_final_state=True,
         cu_seqlens=cu_seqlens,
         use_qk_l2norm_in_kernel=False,
+        skip_cumsum=True,
     )
 
     # Remove batch dim and write to DPS outputs
